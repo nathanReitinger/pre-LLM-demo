@@ -25,13 +25,23 @@ app.js       – UI wiring, experiment runner, LLM integration
 ## How the models work
 
 - **N-grams (bi/tri/4-gram):** trained fresh in your browser on the
-  story + target sentence you type in, blended with a small built-in
-  background corpus at a fixed weight (`BG_WEIGHT` in `app.js`).
-  Prediction only ever looks at the *n − 1* words immediately to the left of the blank
-  — it has no idea what comes after, and no idea what the story is
-  "about." Unseen contexts back off to a shorter context (stupid
-  backoff), which is why higher-order models often collapse toward
-  whatever the lower-order model prefers.
+  story + target sentence you type in, blended with a large (~19k-word,
+  ~2,200-sentence) built-in background corpus at a fixed weight
+  (`BG_WEIGHT` in `app.js`). Prediction only ever looks at the *n − 1*
+  words immediately to the left of the blank — it has no idea what comes
+  after, and no idea what the story is "about."
+
+  Smoothing uses **linear (Jelinek-Mercer) interpolation**, the standard
+  technique for this era of language modeling, not "stupid backoff."
+  Each order blends its own evidence with the order below it, weighted by
+  how many times that specific context has actually been seen — so a
+  well-attested trigram context can dominate, while a one-off trigram
+  barely nudges the bigram estimate. Combined with a much larger
+  background corpus, this means bigram/trigram/4-gram genuinely diverge
+  from each other instead of all just collapsing toward the unigram
+  distribution the moment an exact context is unseen (which is what
+  happens with stupid backoff on a small corpus — see `ngram.js` for the
+  full rationale).
 - **LLM (DistilBERT, masked-language-model mode):** the blank is
   replaced with `[MASK]` and the *whole* passage — both sides of the
   blank — is fed through a small transformer that runs entirely in

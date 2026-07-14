@@ -1,8 +1,10 @@
 // ngram.js
 // A small, dependency-free n-gram language modeling engine.
-// Supports unigram, bigram, trigram and 4-gram models with simple
-// stupid-backoff smoothing, trained live in the browser on whatever
-// text the user supplies (blended with a background corpus).
+// Supports unigram, bigram, trigram and 4-gram models with linear
+// (Jelinek-Mercer) interpolation smoothing — the technique real n-gram
+// LMs of the 1980s-1990s used — trained live in the browser on whatever
+// text the user supplies, blended with a large background corpus so
+// bigram/trigram contexts actually have enough data to say something.
 
 function tokenize(text) {
   return text
@@ -60,32 +62,74 @@ class NGramModel {
     }
   }
 
-  // Stupid backoff: try highest order context first; if unseen, fall back
-  // to a lower order, discounting scores by `alpha` each step down.
+  // Linear (Jelinek-Mercer style) interpolation across all orders.
+  //
+  // This is the historically accurate smoothing technique for this era of
+  // language modeling (Jelinek & Mercer, ~1980; standard in n-gram LMs
+  // through the 1990s) — as opposed to "stupid backoff," which is a
+  // 2007 Google-scale shortcut that only makes sense when you have
+  // billions of words and can't afford anything smarter. Stupid backoff
+  // also has a specific failure mode that makes small-corpus bigram/
+  // trigram demos misleading: the instant the exact higher-order context
+  // is unseen, it discards that evidence completely and drops straight to
+  // a lower order — so on a small corpus, "bigram" and "trigram" almost
+  // always just collapse into "unigram wearing a costume."
+  //
+  // Interpolation instead *blends* every order's evidence at once, weighted
+  // by how much data actually backs each order up:
+  //
+  //   P_k(w | ctx) = lambda(ctx) * P_ML_k(w | ctx) + (1 - lambda(ctx)) * P_{k-1}(w | ctx[1:])
+  //
+  // where lambda(ctx) = count(ctx) / (count(ctx) + K) grows toward 1 as
+  // the model has seen that specific context more often, and toward 0
+  // (deferring almost entirely to the lower order) when it's rare or
+  // unseen. This means a well-attested trigram context can dominate,
+  // while a one-off trigram context barely perturbs the bigram estimate —
+  // which is exactly the qualitative difference that made trigram models
+  // a genuine improvement over bigram models in the literature, and
+  // exactly what stupid backoff throws away on small data.
   distribution(contextTokens) {
-    const alpha = 0.4;
-    let order = this.n;
-    let ctx = contextTokens.slice(Math.max(0, contextTokens.length - (order - 1)));
-    let scale = 1.0;
+    const V = this.vocab.size || 1;
+    const unigramMap = this.counts[1].get('') || new Map();
+    const totalUnigram = [...unigramMap.values()].reduce((a, b) => a + b, 0);
 
-    while (order >= 1) {
+    // Base case: Laplace(add-one)-smoothed unigram distribution over the
+    // full vocabulary, so every known word has *some* nonzero probability.
+    let probs = new Map();
+    const unigramDenom = totalUnigram + V;
+    for (const w of this.vocab) {
+      probs.set(w, ((unigramMap.get(w) || 0) + 1) / unigramDenom);
+    }
+
+    // K controls how many times a context needs to be seen before the
+    // model starts trusting it over the lower order — small enough that a
+    // handful of real occurrences (which a corpus this size now provides)
+    // meaningfully shifts the prediction, large enough that a single
+    // freak occurrence doesn't dominate.
+    const K = 2;
+
+    for (let order = 2; order <= this.n; order++) {
+      if (contextTokens.length < order - 1) break; // not enough left context yet
+      const ctx = contextTokens.slice(contextTokens.length - (order - 1));
       const key = this._key(ctx);
       const m = this.counts[order].get(key);
-      if (m && m.size > 0) {
-        // Exclude sentence-boundary tokens from displayed predictions
-        const entries = [...m.entries()].filter(([w]) => w !== '<s>' && w !== '</s>');
-        if (entries.length > 0) {
-          const total = entries.reduce((s, [, c]) => s + c, 0);
-          return entries.map(([w, c]) => [w, (c / total) * scale]);
-        }
+      const ctxTotal = m ? [...m.values()].reduce((a, b) => a + b, 0) : 0;
+      if (ctxTotal === 0) continue; // no evidence at this order; keep lower-order estimate
+
+      const lambda = ctxTotal / (ctxTotal + K);
+      const next = new Map();
+      for (const w of this.vocab) {
+        const pml = (m.get(w) || 0) / ctxTotal;
+        next.set(w, lambda * pml + (1 - lambda) * probs.get(w));
       }
-      order -= 1;
-      ctx = ctx.slice(1);
-      scale *= alpha;
+      probs = next;
     }
-    // total fallback: uniform over vocab
-    const words = [...this.vocab];
-    return words.map(w => [w, 1 / words.length]);
+
+    // Exclude sentence-boundary markers from what's shown/sampled, then
+    // renormalize so the displayed percentages sum to 100%.
+    const entries = [...probs.entries()].filter(([w]) => w !== '<s>' && w !== '</s>');
+    const total = entries.reduce((s, [, p]) => s + p, 0) || 1;
+    return entries.map(([w, p]) => [w, p / total]);
   }
 
   // Sample one word given left context, using the (possibly backed-off) distribution.

@@ -39,9 +39,15 @@
       <label class="chip"><input type="checkbox" value="bigram" checked><span>Bigram</span></label>
       <label class="chip"><input type="checkbox" value="trigram" checked><span>Trigram</span></label>
       <label class="chip"><input type="checkbox" value="fourgram"><span>4-gram</span></label>
+      <label class="chip"><input type="checkbox" value="embeddings" checked><span>Embeddings (PPMI + SVD)</span></label>
+      <label class="chip"><input type="checkbox" value="rnn"><span>RNN (live-trained)</span></label>
       <label class="chip llm-chip"><input type="checkbox" value="llm" id="llm-toggle"><span>Small LLM (in-browser, DistilBERT)</span></label>
     </div>
-    <p class="hint tiny" id="llm-note">The LLM option downloads a ~65&nbsp;MB model the first time (cached after that) and runs it fully in your browser — no server, no API key. It fills the blank using both left and right context, which is exactly what the n-gram models can't do.</p>
+    <p class="hint tiny">Six stages of the same field, each on the same blank: <b>unigram → bigram → trigram/4-gram</b> (frequency tables,
+    1980s–2000s) → <b>embeddings</b> (words as vectors from co-occurrence statistics, the word2vec/GloVe-era idea, 2003–2013) →
+    <b>RNN</b> (a running hidden state instead of a fixed window, Mikolov 2010) → <b>LLM</b> (a real pretrained transformer using
+    full bidirectional context, 2018–present).</p>
+    <p class="hint tiny" id="llm-note">The LLM option downloads a ~65&nbsp;MB model the first time (cached after that) and runs it fully in your browser — no server, no API key.</p>
 
     <button id="run-btn" class="run-btn">Run experiment</button>
     <p class="status" id="status" aria-live="polite"></p>

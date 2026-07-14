@@ -2220,6 +2220,101 @@ The principal raced past the gym.
 All summer, the coach grew impatient.
 The neighbor raced toward the hallway and asked that the ceremony was about to begin.
 All summer, the teacher held her breath.
+
+Once upon a time, a curious fox roamed the quiet meadow.
+Once upon a time, a young baker discovered a hidden recipe.
+Once upon a time, a lonely lighthouse keeper found a mysterious bottle.
+Once upon a time, an old miller lived beside a rushing river.
+Once upon a time, a small village welcomed a wandering storyteller.
+Once upon a time, a shy dragon hid beneath a mountain.
+Once upon a time, a clever fisherman outwitted a grumpy giant.
+Once upon a time, a gentle giantess tended a garden of stars.
+Once upon a time, three brothers set out to seek their fortune.
+Once upon a time, a poor tailor sewed a coat of many colors.
+Once upon a time, a wise owl watched over a sleeping forest.
+Once upon a time, a brave knight rode toward a distant castle.
+Once upon a time, a kind queen ruled over a peaceful kingdom.
+Once upon a time, a stubborn goat refused to cross the bridge.
+Once upon a time, a curious girl followed a rabbit down a hole.
+Once upon a time, a humble woodcutter chopped trees near a frozen lake.
+Once upon a time, a mischievous cat learned to speak.
+Once upon a time, an old sailor told tales of a sunken ship.
+Once upon a time, a young shepherd guarded his flock on a windy hill.
+Once upon a time, a talking mirror lived in a dusty attic.
+Once upon a time, a hungry wolf prowled the edge of the forest.
+Once upon a time, a magical garden bloomed behind a crumbling wall.
+Once upon a time, a traveling merchant sold spices from distant lands.
+Once upon a time, a forgotten prince wandered the countryside in disguise.
+Once upon a time, a wise grandmother told stories by the fire.
+Once upon a time, a golden bird sang from the highest branch.
+Once upon a time, a lonely miller's daughter spun straw into gold.
+Once upon a time, a small kingdom lay hidden beyond seven hills.
+Once upon a time, a curious mouse explored a grand old library.
+Once upon a time, a proud rooster crowed atop a crooked fence.
+Once upon a time, an ancient tree whispered secrets to the wind.
+Once upon a time, a young apprentice studied under a stern wizard.
+Once upon a time, a red fox and a white hare became unlikely friends.
+Once upon a time, a tired traveler stopped at an inn for the night.
+Once upon a time, a clever crow outsmarted a hungry cat.
+Once upon a time, a wandering minstrel sang songs of old.
+Once upon a time, a beautiful swan swam upon a still lake.
+Once upon a time, a curious kitten wandered far from home.
+Once upon a time, a stubborn donkey carried heavy sacks to market.
+Once upon a time, a gentle bear befriended a lost child.
+Once upon a time, a young fisherman caught a talking fish.
+Once upon a time, a poor farmer found a chest buried in his field.
+Once upon a time, a wise hermit lived at the edge of the woods.
+Once upon a time, a small candle lit the way through a dark cave.
+Once upon a time, a curious frog dreamed of becoming a prince.
+Once upon a time, a patient turtle raced against a boastful hare.
+Inside my fruit basket there is one apple.
+Inside the fruit basket there was one apple.
+In my fruit basket I found one apple.
+On the kitchen table, the fruit basket held one apple.
+Inside my fruit basket there is one pear.
+Inside the fruit basket there was one pear.
+In my fruit basket I found one pear.
+On the kitchen table, the fruit basket held one pear.
+Inside my fruit basket there is one banana.
+Inside the fruit basket there was one banana.
+In my fruit basket I found one banana.
+On the kitchen table, the fruit basket held one banana.
+Inside my fruit basket there is one orange.
+Inside the fruit basket there was one orange.
+In my fruit basket I found one orange.
+On the kitchen table, the fruit basket held one orange.
+Inside my fruit basket there is one grape.
+Inside the fruit basket there was one grape.
+In my fruit basket I found one grape.
+On the kitchen table, the fruit basket held one grape.
+Inside my fruit basket there is one peach.
+Inside the fruit basket there was one peach.
+In my fruit basket I found one peach.
+On the kitchen table, the fruit basket held one peach.
+Inside my fruit basket there is one plum.
+Inside the fruit basket there was one plum.
+In my fruit basket I found one plum.
+On the kitchen table, the fruit basket held one plum.
+Inside my fruit basket there is one mango.
+Inside the fruit basket there was one mango.
+In my fruit basket I found one mango.
+On the kitchen table, the fruit basket held one mango.
+Inside my fruit basket there is one lemon.
+Inside the fruit basket there was one lemon.
+In my fruit basket I found one lemon.
+On the kitchen table, the fruit basket held one lemon.
+Inside my fruit basket there is one kiwi.
+Inside the fruit basket there was one kiwi.
+In my fruit basket I found one kiwi.
+On the kitchen table, the fruit basket held one kiwi.
+Inside my fruit basket there is one cherry.
+Inside the fruit basket there was one cherry.
+In my fruit basket I found one cherry.
+On the kitchen table, the fruit basket held one cherry.
+Inside my fruit basket there is one watermelon.
+Inside the fruit basket there was one watermelon.
+In my fruit basket I found one watermelon.
+On the kitchen table, the fruit basket held one watermelon.
 `;
 
 if (typeof module !== 'undefined') {

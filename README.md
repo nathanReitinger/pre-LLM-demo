@@ -26,8 +26,8 @@ app.js       – UI wiring, experiment runner, LLM integration
 
 - **N-grams (bi/tri/4-gram):** trained fresh in your browser on the
   story + target sentence you type in, blended with a small built-in
-  background corpus (the slider controls how much). Prediction only
-  ever looks at the *n − 1* words immediately to the left of the blank
+  background corpus at a fixed weight (`BG_WEIGHT` in `app.js`).
+  Prediction only ever looks at the *n − 1* words immediately to the left of the blank
   — it has no idea what comes after, and no idea what the story is
   "about." Unseen contexts back off to a shorter context (stupid
   backoff), which is why higher-order models often collapse toward

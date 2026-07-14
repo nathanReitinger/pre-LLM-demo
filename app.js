@@ -8,12 +8,15 @@
 const els = {
   prompt: document.getElementById('prompt'),
   runs: document.getElementById('runs'),
-  bgWeight: document.getElementById('bg-weight'),
   runBtn: document.getElementById('run-btn'),
   status: document.getElementById('status'),
   results: document.getElementById('results'),
   picker: document.getElementById('model-picker'),
 };
+
+// The background corpus is always blended in at the same fixed strength —
+// this isn't a user-facing knob, just an internal smoothing constant.
+const BG_WEIGHT = 1;
 
 const MODEL_LABELS = {
   unigram: 'Unigram',
@@ -38,23 +41,41 @@ function leftContextTokens(before) {
   return sents.length ? sents[sents.length - 1] : [];
 }
 
+// The spinner lives in its own full-page overlay, completely separate from
+// the #results container. Earlier this reused #results, which meant every
+// showSpinner() call wiped out the results table mid-run (losing rows and
+// breaking multi-model runs) and only ever covered part of the page.
+let overlayEl = null;
+let overlayMsgEl = null;
+
+function ensureOverlay() {
+  if (overlayEl) return overlayEl;
+  overlayEl = document.createElement('div');
+  overlayEl.className = 'page-spinner-overlay';
+  overlayEl.id = 'page-spinner-overlay';
+  overlayEl.innerHTML = `
+    <div class="page-spinner-box">
+      <span class="spinner"></span>
+      <span id="spinner-msg"></span>
+    </div>
+  `;
+  document.body.appendChild(overlayEl);
+  overlayMsgEl = overlayEl.querySelector('#spinner-msg');
+  return overlayEl;
+}
+
 function showSpinner(message) {
-  els.results.innerHTML = '';
-  const wrap = document.createElement('div');
-  wrap.className = 'spinner-wrap';
-  wrap.id = 'spinner-wrap';
-  wrap.innerHTML = `<span class="spinner"></span><span id="spinner-msg">${message}</span>`;
-  els.results.appendChild(wrap);
+  ensureOverlay();
+  overlayMsgEl.textContent = message;
+  overlayEl.classList.add('visible');
 }
 
 function updateSpinnerMessage(message) {
-  const msg = document.getElementById('spinner-msg');
-  if (msg) msg.textContent = message;
+  if (overlayMsgEl) overlayMsgEl.textContent = message;
 }
 
 function hideSpinner() {
-  const wrap = document.getElementById('spinner-wrap');
-  if (wrap) wrap.remove();
+  if (overlayEl) overlayEl.classList.remove('visible');
 }
 
 let tableEl = null;
@@ -148,7 +169,6 @@ let currentPreview = '';
 async function run() {
   const promptText = els.prompt.value.trim();
   const runs = Math.max(10, Math.min(5000, parseInt(els.runs.value, 10) || 1000));
-  const bgWeight = parseInt(els.bgWeight.value, 10);
   const models = selectedModels();
 
   const split = splitOnBlank(promptText);
@@ -175,7 +195,7 @@ async function run() {
   for (const key of ngramModels) {
     updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story text…`);
     await new Promise(r => setTimeout(r, 0)); // let status paint
-    const model = buildModel(MODEL_ORDER[key], promptText.replace('___', ''), BACKGROUND_CORPUS, bgWeight);
+    const model = buildModel(MODEL_ORDER[key], promptText.replace('___', ''), BACKGROUND_CORPUS, BG_WEIGHT);
 
     updateSpinnerMessage(`Sampling ${runs} guesses from the ${MODEL_LABELS[key]}…`);
     await new Promise(r => setTimeout(r, 0));

@@ -41,6 +41,11 @@ function leftContextTokens(before) {
   return sents.length ? sents[sents.length - 1] : [];
 }
 
+function rightContextTokens(after) {
+  const sents = toSentences(tokenize(after));
+  return sents.length ? sents[0] : [];
+}
+
 // The spinner lives in its own full-page overlay, completely separate from
 // the #results container. Earlier this reused #results, which meant every
 // showSpinner() call wiped out the results table mid-run (losing rows and
@@ -154,6 +159,31 @@ function addLLMRow(predictions) {
   tbody.appendChild(tr);
 }
 
+// Shared renderer for any model that already produces [word, probability]
+// pairs (0-1 range) — used by the embeddings and RNN models.
+function addVectorRow(label, tag, pairs) {
+  const tbody = ensureResultsTable(currentPreview);
+  const top = pairs.slice(0, 8);
+  const tr = document.createElement('tr');
+  const modelTd = document.createElement('td');
+  modelTd.className = 'model-cell';
+  modelTd.innerHTML = `${label}<span class="model-tag">${tag}</span>`;
+  tr.appendChild(modelTd);
+  for (const [word, p] of top) {
+    tr.appendChild(predCell(word, (p * 100).toFixed(1)));
+  }
+  for (let i = top.length; i < 8; i++) tr.appendChild(document.createElement('td'));
+  tbody.appendChild(tr);
+}
+
+function addErrorNote(message) {
+  ensureResultsTable(currentPreview);
+  const note = document.createElement('p');
+  note.className = 'error-note';
+  note.textContent = message;
+  els.results.appendChild(note);
+}
+
 let llmPipelinePromise = null;
 async function getLLMPipeline(setStatus) {
   if (!llmPipelinePromise) {
@@ -191,11 +221,16 @@ async function run() {
 
   showSpinner('Warming up…');
 
+  const ranLabels = [];
+  const storyOnly = promptText.replace('___', '');
+  const stillToRun = () =>
+    models.includes('embeddings') || models.includes('rnn') || models.includes('llm');
+
   const ngramModels = models.filter(m => m in MODEL_ORDER);
   for (const key of ngramModels) {
     updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story text…`);
     await new Promise(r => setTimeout(r, 0)); // let status paint
-    const model = buildModel(MODEL_ORDER[key], promptText.replace('___', ''), BACKGROUND_CORPUS, BG_WEIGHT);
+    const model = buildModel(MODEL_ORDER[key], storyOnly, BACKGROUND_CORPUS, BG_WEIGHT);
 
     updateSpinnerMessage(`Sampling ${runs} guesses from the ${MODEL_LABELS[key]}…`);
     await new Promise(r => setTimeout(r, 0));
@@ -203,9 +238,49 @@ async function run() {
 
     hideSpinner();
     addNgramRow(MODEL_LABELS[key], freqPairs, runs);
-    if (ngramModels.indexOf(key) < ngramModels.length - 1 || models.includes('llm')) {
+    ranLabels.push(MODEL_LABELS[key]);
+    if (ngramModels.indexOf(key) < ngramModels.length - 1 || stillToRun()) {
       showSpinner('Preparing next model…');
     }
+  }
+
+  if (models.includes('embeddings')) {
+    showSpinner('Building word vectors from the story…');
+    await new Promise(r => setTimeout(r, 0));
+    try {
+      const emb = buildEmbeddings(storyOnly, BACKGROUND_CORPUS);
+      updateSpinnerMessage('Averaging context vectors and ranking neighbors…');
+      await new Promise(r => setTimeout(r, 0));
+      const rightTokens = rightContextTokens(split.after);
+      const preds = embeddingPredict(emb, ctxTokens, rightTokens, 8);
+      hideSpinner();
+      addVectorRow('Embeddings', 'PPMI + SVD · vector similarity, left + right context', preds);
+      ranLabels.push('Embeddings');
+    } catch (err) {
+      console.error(err);
+      hideSpinner();
+      addErrorNote(`Couldn't build the embedding model (${err.message || 'error'}).`);
+    }
+    if (models.includes('rnn') || models.includes('llm')) showSpinner('Preparing next model…');
+  }
+
+  if (models.includes('rnn')) {
+    showSpinner('Training a tiny RNN on the story text…');
+    await new Promise(r => setTimeout(r, 0));
+    try {
+      const rnnModel = trainRNN(storyOnly, BACKGROUND_CORPUS);
+      updateSpinnerMessage('Running the RNN forward over the left context…');
+      await new Promise(r => setTimeout(r, 0));
+      const preds = rnnPredict(rnnModel, ctxTokens, 8);
+      hideSpinner();
+      addVectorRow('RNN', 'live-trained · running hidden state, left context only', preds);
+      ranLabels.push('RNN');
+    } catch (err) {
+      console.error(err);
+      hideSpinner();
+      addErrorNote(`Couldn't train the RNN (${err.message || 'error'}).`);
+    }
+    if (models.includes('llm')) showSpinner('Preparing next model…');
   }
 
   if (models.includes('llm')) {
@@ -217,19 +292,18 @@ async function run() {
       const predictions = await pipe(maskedSentence, { topk: 10 });
       hideSpinner();
       addLLMRow(predictions);
+      ranLabels.push('DistilBERT');
     } catch (err) {
       console.error(err);
       hideSpinner();
-      ensureResultsTable(currentPreview);
-      const note = document.createElement('p');
-      note.className = 'error-note';
-      note.textContent = `Couldn't load the in-browser LLM (${err.message || 'network or WebAssembly issue'}). This needs internet access to fetch model weights the first time.`;
-      els.results.appendChild(note);
+      addErrorNote(`Couldn't load the in-browser LLM (${err.message || 'network or WebAssembly issue'}). This needs internet access to fetch model weights the first time.`);
     }
   }
 
   hideSpinner();
-  els.status.textContent = `Done — ran ${ngramModels.length} n-gram model(s)${models.includes('llm') ? ' + LLM' : ''}.`;
+  els.status.textContent = ranLabels.length
+    ? `Done — ran ${ranLabels.join(', ')}.`
+    : `Nothing ran — check the browser console for errors.`;
   els.runBtn.disabled = false;
 }
 

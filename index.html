@@ -35,13 +35,34 @@
 
     <h2>Pick models to compare</h2>
     <div class="model-picker" id="model-picker">
-      <label class="chip"><input type="checkbox" value="unigram" checked><span>Unigram</span></label>
-      <label class="chip"><input type="checkbox" value="bigram" checked><span>Bigram</span></label>
-      <label class="chip"><input type="checkbox" value="trigram" checked><span>Trigram</span></label>
-      <label class="chip"><input type="checkbox" value="fourgram"><span>4-gram</span></label>
-      <label class="chip"><input type="checkbox" value="embeddings" checked><span>Embeddings (PPMI + SVD)</span></label>
-      <label class="chip"><input type="checkbox" value="rnn"><span>RNN (live-trained)</span></label>
-      <label class="chip llm-chip"><input type="checkbox" value="llm" id="llm-toggle"><span>Small LLM (in-browser, DistilBERT)</span></label>
+      <label class="chip">
+        <input type="checkbox" value="unigram" checked><span>Unigram</span>
+        <span class="info-dot" tabindex="0" data-tip="Guesses purely from how often each word appears in the whole text — no context at all, just raw word frequency.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="bigram" checked><span>Bigram</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks only at the single word right before the blank, and picks from whatever has followed that word before.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="trigram" checked><span>Trigram</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks at the two words before the blank. Sharper than bigram when it has seen that exact pair, but on a short story it often hasn't.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="fourgram"><span>4-gram</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks at the three words before the blank. Most 4-word runs in a short story are one-of-a-kind, so it often falls back toward the shorter patterns.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="embeddings" checked><span>Embeddings (PPMI + SVD)</span>
+        <span class="info-dot" tabindex="0" data-tip="Turns each word into a vector based on which words tend to sit near it, then averages the vectors on both sides of the blank and finds the closest word to that average.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="rnn"><span>RNN (live-trained)</span>
+        <span class="info-dot" tabindex="0" data-tip="A tiny recurrent network trained on the fly. It reads left-to-right, updating one running 'memory' vector word by word, instead of just counting fixed windows like the n-grams.">i</span>
+      </label>
+      <label class="chip llm-chip">
+        <input type="checkbox" value="llm" id="llm-toggle"><span>Small LLM (in-browser, DistilBERT)</span>
+        <span class="info-dot" tabindex="0" data-tip="A real pretrained transformer. It reads the whole passage — both before and after the blank — at once using attention, instead of hand-built statistics.">i</span>
+      </label>
     </div>
     <p class="hint tiny">Six stages of the same field, each on the same blank: <b>unigram → bigram → trigram/4-gram</b> (frequency tables,
     1980s–2000s) → <b>embeddings</b> (words as vectors from co-occurrence statistics, the word2vec/GloVe-era idea, 2003–2013) →
@@ -59,6 +80,8 @@
 
 <script src="corpus.js"></script>
 <script src="ngram.js"></script>
+<script src="embeddings.js"></script>
+<script src="rnn.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

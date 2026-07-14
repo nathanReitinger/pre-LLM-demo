@@ -102,6 +102,14 @@ class NGramModel {
     }
     this._contTotalUnigram = this.contCount[1] ?
       [...this.contCount[1].values()].reduce((a, b) => a + b, 0) : 0;
+
+    // Plain relative-frequency total, independent of continuation counts.
+    // Continuation counts (above) only exist when this.n >= 2, because they're
+    // derived from bigrams. A standalone unigram model (this.n === 1) has no
+    // bigrams to derive them from, so it needs a real fallback — otherwise it
+    // has nothing to rank words by and ends up guessing uniformly at random.
+    this._unigramTotal = 0;
+    for (const c of this.ngramCounts[1].values()) this._unigramTotal += c;
   }
 
   // P_KN for a single word given a context, at a specific order, using
@@ -111,14 +119,25 @@ class NGramModel {
   // the bigram estimate.
   _pKN(order, ctxTokens, word) {
     if (order <= 1) {
-      // Base case: continuation probability, not raw frequency — a word
-      // that appears after many *different* words ranks higher than a
-      // word that appears often but always after the same neighbor.
-      const total = this._contTotalUnigram || 0;
+      // Base case when we're backing off *from* a higher order: continuation
+      // probability, not raw frequency — a word that appears after many
+      // *different* words ranks higher than a word that appears often but
+      // always after the same neighbor. This needs bigrams to derive from,
+      // so it's only available when this.n >= 2.
+      const contTotal = this._contTotalUnigram || 0;
+      if (contTotal > 0) {
+        const cc = this.contCount[1] ? (this.contCount[1].get(word) || 0) : 0;
+        // tiny additive smoothing so unseen vocab words aren't exactly zero
+        return (cc + 0.001) / (contTotal + 0.001 * (this.vocab.size || 1));
+      }
+      // Standalone unigram model (this.n === 1): no bigrams exist to derive
+      // continuation counts from, so fall back to plain relative frequency —
+      // the actual definition of a unigram model — instead of guessing
+      // uniformly at random over the vocabulary.
+      const total = this._unigramTotal || 0;
       if (total === 0) return 1 / (this.vocab.size || 1);
-      const cc = this.contCount[1] ? (this.contCount[1].get(word) || 0) : 0;
-      // tiny additive smoothing so unseen vocab words aren't exactly zero
-      return (cc + 0.001) / (total + 0.001 * (this.vocab.size || 1));
+      const c = this.ngramCounts[1].get(word) || 0;
+      return (c + 0.001) / (total + 0.001 * (this.vocab.size || 1));
     }
     const ctx = ctxTokens.slice(ctxTokens.length - (order - 1));
     const ctxKey = this._key(ctx);

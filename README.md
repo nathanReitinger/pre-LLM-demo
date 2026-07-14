@@ -15,11 +15,14 @@ site.
 ## Files
 
 ```
-index.html   – page structure & copy
-style.css    – visual design (teletype / punch-tape theme)
-ngram.js     – tokenizer + n-gram training/sampling engine
-corpus.js    – small original background corpus used for smoothing
-app.js       – UI wiring, experiment runner, LLM integration
+index.html    – page structure & copy
+style.css     – visual design (teletype / punch-tape theme)
+ngram.js      – tokenizer + n-gram training/sampling engine
+embeddings.js – co-occurrence → PPMI → SVD word vectors
+rnn.js        – tiny live-trained recurrent network
+corpus.js     – small original background corpus used for smoothing
+app.js        – UI wiring, experiment runner, LLM integration
+deploy.yml    – GitHub Actions workflow (copy into .github/workflows/)
 ```
 
 ## How the models work

@@ -28,6 +28,21 @@
     <label class="field-label" for="prompt">Prompt <span class="hint">— write the story, then mark each word to guess with <code>&lt;blank&gt;</code>. You can use more than one <code>&lt;blank&gt;</code> in the same passage.</span></label>
     <textarea id="prompt" rows="9">Maya and Mia had been inseparable since kindergarten, but everyone in town knew they were opposites. Mia was the one who volunteered for every talent show and student council race, while Maya spent most assemblies hiding behind her sister, mortified at the thought of a microphone. So when the graduation committee announced that only one twin would deliver the commencement speech, the whole gym assumed it would be the outgoing one. But when the lights came up and a name was called, it was <blank> who walked, trembling, to the podium.</textarea>
 
+    <div class="field-group wide">
+      <label class="field-label" for="corpus-source">Background corpus <span class="hint">— what the n-gram / embeddings / RNN models train on besides your story</span></label>
+      <select id="corpus-source">
+        <option value="builtin" selected>Built-in demo corpus (instant, offline)</option>
+        <option value="wikitext103">Live sample: Wikitext-103</option>
+        <option value="openwebtext">Live sample: OpenWebText</option>
+        <option value="wikipedia">Live sample: Wikipedia</option>
+      </select>
+      <p class="hint tiny">Live options fetch a random slice of the real dataset from Hugging Face's public
+      <code>datasets-server</code> API at run time (no key needed) and train on that instead — so results
+      will vary run to run and depend on what the slice happens to contain. Google Books Ngrams isn't a
+      choice here: it's published as raw n-gram frequency counts, not sentences, so there's no text in it
+      for a sentence-level trainer to read.</p>
+    </div>
+
     <div class="field-group">
       <label class="field-label" for="runs">Samples per model</label>
       <input type="number" id="runs" value="1000" min="10" max="5000" step="10">
@@ -80,14 +95,13 @@
 
 <footer class="site-foot">
   <div class="wrap">
-    <p>The background corpus baked into this demo (<code>corpus.js</code>) is a few thousand hand-written
-    sentences — enough to make the toy models behave, nowhere near what any of these techniques were
-    actually trained on historically. For the real thing, see:</p>
+    <p>The <b>Background corpus</b> dropdown above can now train the n-gram, embeddings, and RNN models on
+    a live random slice of a real dataset instead of just the small built-in one:</p>
     <ul class="corpus-links">
-      <li><a href="https://huggingface.co/datasets/Salesforce/wikitext" target="_blank" rel="noopener">Wikitext-103</a> — the long-range-dependency Wikipedia language modeling benchmark n-gram and early neural LMs are usually evaluated on.</li>
-      <li><a href="https://books.google.com/ngrams" target="_blank" rel="noopener">Google Books Ngrams</a> — n-gram counts (1–5 grams) over the full scanned Google Books corpus, the largest raw frequency table of its kind.</li>
-      <li><a href="https://skylion007.github.io/OpenWebTextCorpus/" target="_blank" rel="noopener">OpenWebText</a> — the open-source recreation of the WebText corpus GPT-2 was trained on.</li>
-      <li><a href="https://dumps.wikimedia.org/" target="_blank" rel="noopener">Wikipedia Dumps</a> — the raw source most embedding models (word2vec, GloVe) and many LLM pretraining corpora draw from.</li>
+      <li><a href="https://huggingface.co/datasets/Salesforce/wikitext" target="_blank" rel="noopener">Wikitext-103</a> — the long-range-dependency Wikipedia language modeling benchmark n-gram and early neural LMs are usually evaluated on. <em>Selectable above.</em></li>
+      <li><a href="https://skylion007.github.io/OpenWebTextCorpus/" target="_blank" rel="noopener">OpenWebText</a> — the open-source recreation of the WebText corpus GPT-2 was trained on. <em>Selectable above.</em></li>
+      <li><a href="https://dumps.wikimedia.org/" target="_blank" rel="noopener">Wikipedia</a> — the raw source most embedding models (word2vec, GloVe) and many LLM pretraining corpora draw from. <em>Selectable above</em> (via a Wikipedia snapshot, not the raw XML dumps directly).</li>
+      <li><a href="https://books.google.com/ngrams" target="_blank" rel="noopener">Google Books Ngrams</a> — n-gram counts (1–5 grams) over the full scanned Google Books corpus. Not selectable: it's published as frequency tables, not sentences, so there's no text in it for these models to train on.</li>
     </ul>
   </div>
 </footer>
@@ -96,6 +110,7 @@
 <script src="ngram.js"></script>
 <script src="embeddings.js"></script>
 <script src="rnn.js"></script>
+<script src="livecorpus.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

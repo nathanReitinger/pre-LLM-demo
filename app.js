@@ -17,6 +17,7 @@ const els = {
   status: document.getElementById('status'),
   results: document.getElementById('results'),
   picker: document.getElementById('model-picker'),
+  corpusSource: document.getElementById('corpus-source'),
 };
 
 // The background corpus is always blended in at the same fixed strength —
@@ -300,13 +301,33 @@ async function run() {
   const stillToRun = () =>
     models.includes('embeddings') || models.includes('rnn') || models.includes('llm');
 
+  // Resolve the background text ONCE for the whole run: either the small
+  // built-in corpus, or a live random sample pulled from a real public
+  // dataset via livecorpus.js. Every n-gram order + embeddings + RNN below
+  // shares this same background text, same as before.
+  let backgroundText = (typeof BACKGROUND_CORPUS !== 'undefined') ? BACKGROUND_CORPUS : '';
+  const corpusChoice = els.corpusSource ? els.corpusSource.value : 'builtin';
+  const needsBackground = models.some(m => m in MODEL_ORDER || m === 'embeddings' || m === 'rnn');
+  if (corpusChoice !== 'builtin' && needsBackground) {
+    const src = (typeof LIVE_SOURCES !== 'undefined') ? LIVE_SOURCES[corpusChoice] : null;
+    const srcLabel = src ? src.label : corpusChoice;
+    updateSpinnerMessage(`Fetching a live ${srcLabel} sample…`);
+    await new Promise(r => setTimeout(r, 0));
+    try {
+      backgroundText = await fetchLiveCorpusText(corpusChoice);
+    } catch (err) {
+      console.error(err);
+      addErrorNote(`Couldn't fetch a live ${srcLabel} sample (${err.message || 'network/CORS issue'}) — used the built-in corpus instead.`);
+    }
+  }
+
   const blankIdxs = Array.from({ length: blankCount }, (_, i) => i);
 
   const ngramModels = models.filter(m => m in MODEL_ORDER);
   for (const key of ngramModels) {
     updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story text…`);
     await new Promise(r => setTimeout(r, 0)); // let status paint
-    const model = buildModel(MODEL_ORDER[key], storyOnly, BACKGROUND_CORPUS, BG_WEIGHT, STORY_WEIGHT);
+    const model = buildModel(MODEL_ORDER[key], storyOnly, backgroundText, BG_WEIGHT, STORY_WEIGHT);
 
     for (const b of blankIdxs) {
       updateSpinnerMessage(
@@ -331,7 +352,7 @@ async function run() {
     showSpinner('Building word vectors from the story…');
     await new Promise(r => setTimeout(r, 0));
     try {
-      const emb = buildEmbeddings(storyOnly, BACKGROUND_CORPUS);
+      const emb = buildEmbeddings(storyOnly, backgroundText);
       for (const b of blankIdxs) {
         updateSpinnerMessage(
           blankCount > 1
@@ -358,7 +379,7 @@ async function run() {
     showSpinner('Training a tiny RNN on the story text…');
     await new Promise(r => setTimeout(r, 0));
     try {
-      const rnnModel = trainRNN(storyOnly, BACKGROUND_CORPUS);
+      const rnnModel = trainRNN(storyOnly, backgroundText);
       for (const b of blankIdxs) {
         updateSpinnerMessage(
           blankCount > 1
@@ -414,8 +435,11 @@ async function run() {
   }
 
   hideSpinner();
+  const corpusNote = (corpusChoice !== 'builtin' && needsBackground)
+    ? ` (background: ${backgroundText === BACKGROUND_CORPUS ? 'built-in, fallback' : (LIVE_SOURCES[corpusChoice] ? LIVE_SOURCES[corpusChoice].label + ' live sample' : corpusChoice)})`
+    : '';
   els.status.textContent = ranLabels.length
-    ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}.`
+    ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}${corpusNote}.`
     : `Nothing ran — check the browser console for errors.`;
   els.runBtn.disabled = false;
 }

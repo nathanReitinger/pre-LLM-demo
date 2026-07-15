@@ -60,15 +60,16 @@ h2:first-child{margin-top:0;}
 .hint{color:var(--ink-soft);font-size:.95rem;}
 .hint.tiny{font-size:.9rem;margin-top:8px;font-style:italic;}
 
-textarea, input[type=number]{
+textarea, input[type=number], select{
   width:100%;background:var(--wash);color:var(--ink);border:1px solid var(--line-2);
   border-radius:2px;padding:14px 16px;font-family:var(--serif);font-size:1.05rem;
   resize:vertical;
 }
-textarea:focus, input:focus{outline:1.5px solid var(--accent);outline-offset:1px;}
+textarea:focus, input:focus, select:focus{outline:1.5px solid var(--accent);outline-offset:1px;}
 
 .field-group{margin-top:6px;max-width:220px;}
-.field-group input[type=number]{width:100%;}
+.field-group.wide{max-width:420px;}
+.field-group input[type=number], .field-group select{width:100%;}
 
 .model-picker{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;}
 .chip{

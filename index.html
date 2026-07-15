@@ -29,16 +29,22 @@
     <textarea id="prompt" rows="9">Maya and Mia had been inseparable since kindergarten, but everyone in town knew they were opposites. Mia was the one who volunteered for every talent show and student council race, while Maya spent most assemblies hiding behind her sister, mortified at the thought of a microphone. So when the graduation committee announced that only one twin would deliver the commencement speech, the whole gym assumed it would be the outgoing one. But when the lights came up and a name was called, it was <blank> who walked, trembling, to the podium.</textarea>
 
     <div class="field-group wide">
-      <label class="field-label" for="corpus-source">Background corpus <span class="hint">— what the n-gram / embeddings / RNN models train on besides your story</span></label>
+      <label class="field-label" for="corpus-source">Background corpus <span class="hint">— what the embeddings / RNN models train on besides your story</span></label>
       <select id="corpus-source">
         <option value="builtin" selected>Built-in demo corpus (instant, offline)</option>
         <option value="wikitext103">Live sample: Wikitext-103</option>
         <option value="openwebtext">Live sample: OpenWebText</option>
         <option value="wikipedia">Live sample: Wikipedia</option>
       </select>
-      <p class="hint tiny">Live options fetch a random slice of the real dataset from Hugging Face's public
-      <code>datasets-server</code> API at run time (no key needed) and train on that instead — so results
-      will vary run to run and depend on what the slice happens to contain. Google Books Ngrams isn't a
+      <p class="hint tiny">This only affects <b>Embeddings</b> and <b>RNN</b> below. The <b>n-gram models
+      (unigram/bigram/trigram/4-gram) always query a real, live, pretrained n-gram corpus instead</b> —
+      <a href="https://infini-gram.io/" target="_blank" rel="noopener">infini-gram</a>, a free public API
+      that holds an index over Dolma-v1.7 (~2.6 trillion tokens) and returns exact next-word statistics in
+      milliseconds. Your story is still trained locally so a well-attested story-specific pattern can win
+      out; infini-gram just replaces the old small local/sampled corpus as what the model backs off to.
+      Live options here fetch a random slice of the real dataset from Hugging Face's public
+      <code>datasets-server</code> API at run time (no key needed) and train the embeddings/RNN models on
+      that instead of the built-in corpus — so results will vary run to run. Google Books Ngrams isn't a
       choice here: it's published as raw n-gram frequency counts, not sentences, so there's no text in it
       for a sentence-level trainer to read.</p>
     </div>
@@ -52,19 +58,19 @@
     <div class="model-picker" id="model-picker">
       <label class="chip">
         <input type="checkbox" value="unigram" checked><span>Unigram</span>
-        <span class="info-dot" tabindex="0" data-tip="Guesses purely from how often each word appears in the whole text — no context at all, just raw word frequency.">i</span>
+        <span class="info-dot" tabindex="0" data-tip="Guesses from raw word frequency — no context. Blends your story's own word counts with the live whole-corpus frequency from infini-gram (Dolma, 2.6T tokens).">i</span>
       </label>
       <label class="chip">
         <input type="checkbox" value="bigram" checked><span>Bigram</span>
-        <span class="info-dot" tabindex="0" data-tip="Looks only at the single word right before the blank, and picks from whatever has followed that word before.">i</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks at the single word right before the blank. Blends whatever your story itself has shown following that word with a live infini-gram query for the same 1-word context over Dolma (2.6T tokens).">i</span>
       </label>
       <label class="chip">
         <input type="checkbox" value="trigram" checked><span>Trigram</span>
-        <span class="info-dot" tabindex="0" data-tip="Looks at the two words before the blank. Sharper than bigram when it has seen that exact pair, but on a short story it often hasn't.">i</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks at the two words before the blank. Blends your story's own evidence with a live infini-gram query for that exact 2-word context over Dolma (2.6T tokens) — sharper than bigram when that pair is real, common English.">i</span>
       </label>
       <label class="chip">
         <input type="checkbox" value="fourgram"><span>4-gram</span>
-        <span class="info-dot" tabindex="0" data-tip="Looks at the three words before the blank. Most 4-word runs in a short story are one-of-a-kind, so it often falls back toward the shorter patterns.">i</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks at the three words before the blank. Blends your story's own evidence with a live infini-gram query for that exact 3-word context over Dolma (2.6T tokens); backs off toward shorter contexts if that exact run of words has never occurred.">i</span>
       </label>
       <label class="chip">
         <input type="checkbox" value="embeddings" checked><span>Embeddings (PPMI + SVD)</span>
@@ -80,7 +86,8 @@
       </label>
     </div>
     <p class="hint tiny">Six stages of the same field, each on the same blank: <b>unigram → bigram → trigram/4-gram</b> (frequency tables,
-    1980s–2000s) → <b>embeddings</b> (words as vectors from co-occurrence statistics, the word2vec/GloVe-era idea, 2003–2013) →
+    1980s–2000s, now blended live with real statistics from a trillion-token corpus via infini-gram) → <b>embeddings</b> (words as
+    vectors from co-occurrence statistics, the word2vec/GloVe-era idea, 2003–2013) →
     <b>RNN</b> (a running hidden state instead of a fixed window, Mikolov 2010) → <b>LLM</b> (a real pretrained transformer using
     full bidirectional context, 2018–present).</p>
     <p class="hint tiny" id="llm-note">The LLM option downloads a ~65&nbsp;MB model the first time (cached after that) and runs it fully in your browser — no server, no API key.</p>
@@ -95,8 +102,15 @@
 
 <footer class="site-foot">
   <div class="wrap">
-    <p>The <b>Background corpus</b> dropdown above can now train the n-gram, embeddings, and RNN models on
-    a live random slice of a real dataset instead of just the small built-in one:</p>
+    <p>The <b>unigram / bigram / trigram / 4-gram</b> models above always query a real pretrained n-gram
+    corpus live, via <a href="https://infini-gram.io/" target="_blank" rel="noopener">infini-gram</a>
+    (Liu, Min, Zettlemoyer, Choi &amp; Hajishirzi, 2024) — a free public API backed by a suffix-array index
+    over <a href="https://huggingface.co/datasets/allenai/dolma" target="_blank" rel="noopener">Dolma-v1.7</a>
+    (~2.6 trillion tokens of web text, books, Wikipedia, Reddit, and code), returning exact next-word
+    counts and probabilities in milliseconds — no download, no key. That's what actually replaced the old
+    small local/sampled background corpus for these four models.</p>
+    <p>The <b>Background corpus</b> dropdown further up the page can still train the <b>embeddings</b> and
+    <b>RNN</b> models on a live random slice of a real dataset instead of just the small built-in one:</p>
     <ul class="corpus-links">
       <li><a href="https://huggingface.co/datasets/Salesforce/wikitext" target="_blank" rel="noopener">Wikitext-103</a> — the long-range-dependency Wikipedia language modeling benchmark n-gram and early neural LMs are usually evaluated on. <em>Selectable above.</em></li>
       <li><a href="https://skylion007.github.io/OpenWebTextCorpus/" target="_blank" rel="noopener">OpenWebText</a> — the open-source recreation of the WebText corpus GPT-2 was trained on. <em>Selectable above.</em></li>
@@ -111,6 +125,7 @@
 <script src="embeddings.js"></script>
 <script src="rnn.js"></script>
 <script src="livecorpus.js"></script>
+<script src="infinigram.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

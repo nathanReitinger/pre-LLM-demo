@@ -32,21 +32,21 @@
       <label class="field-label" for="corpus-source">Background corpus <span class="hint">— what the embeddings / RNN models train on besides your story</span></label>
       <select id="corpus-source">
         <option value="builtin" selected>Built-in demo corpus (instant, offline)</option>
-        <option value="wikitext103">Live sample: Wikitext-103</option>
-        <option value="openwebtext">Live sample: OpenWebText</option>
-        <option value="wikipedia">Live sample: Wikipedia</option>
+        <option value="infinigram">Live sample: real documents via infini-gram (Dolma-v1.7)</option>
       </select>
       <p class="hint tiny">This only affects <b>Embeddings</b> and <b>RNN</b> below. The <b>n-gram models
-      (unigram/bigram/trigram/4-gram) always query a real, live, pretrained n-gram corpus instead</b> —
+      (unigram/bigram/trigram/4-gram) always query a real, live, pretrained n-gram corpus</b> —
       <a href="https://infini-gram.io/" target="_blank" rel="noopener">infini-gram</a>, a free public API
       that holds an index over Dolma-v1.7 (~2.6 trillion tokens) and returns exact next-word statistics in
       milliseconds. Your story is still trained locally so a well-attested story-specific pattern can win
       out; infini-gram just replaces the old small local/sampled corpus as what the model backs off to.
-      Live options here fetch a random slice of the real dataset from Hugging Face's public
-      <code>datasets-server</code> API at run time (no key needed) and train the embeddings/RNN models on
-      that instead of the built-in corpus — so results will vary run to run. Google Books Ngrams isn't a
-      choice here: it's published as raw n-gram frequency counts, not sentences, so there's no text in it
-      for a sentence-level trainer to read.</p>
+      The live option here uses that <b>same</b> infini-gram index a different way: it pulls a handful of
+      real, randomly-selected documents straight out of Dolma (via infini-gram's document-search API) and
+      trains the embeddings/RNN models on that actual text instead of the built-in corpus — so results
+      will vary run to run. (This replaced fetching random rows from a few specific Hugging Face datasets
+      directly — several of those, like Wikitext-103's source dataset, have since become gated and no
+      longer load anonymously from the browser. infini-gram doesn't have that problem and is already used
+      reliably elsewhere on this page.)</p>
     </div>
 
     <div class="field-group">
@@ -109,12 +109,16 @@
     (~2.6 trillion tokens of web text, books, Wikipedia, Reddit, and code), returning exact next-word
     counts and probabilities in milliseconds — no download, no key. That's what actually replaced the old
     small local/sampled background corpus for these four models.</p>
-    <p>The <b>Background corpus</b> dropdown further up the page can still train the <b>embeddings</b> and
-    <b>RNN</b> models on a live random slice of a real dataset instead of just the small built-in one:</p>
+    <p>The <b>Background corpus</b> dropdown further up the page can also train the <b>embeddings</b> and
+    <b>RNN</b> models on a live sample of real text instead of just the small built-in one — real documents
+    pulled straight out of <a href="https://huggingface.co/datasets/allenai/dolma" target="_blank" rel="noopener">Dolma-v1.7</a>
+    via infini-gram's document-search API, the same reliable endpoint as above. Some datasets that used to
+    be fetchable directly from the browser for this purpose have since been moved behind Hugging Face's
+    gating, so they no longer load anonymously:</p>
     <ul class="corpus-links">
-      <li><a href="https://huggingface.co/datasets/Salesforce/wikitext" target="_blank" rel="noopener">Wikitext-103</a> — the long-range-dependency Wikipedia language modeling benchmark n-gram and early neural LMs are usually evaluated on. <em>Selectable above.</em></li>
-      <li><a href="https://skylion007.github.io/OpenWebTextCorpus/" target="_blank" rel="noopener">OpenWebText</a> — the open-source recreation of the WebText corpus GPT-2 was trained on. <em>Selectable above.</em></li>
-      <li><a href="https://dumps.wikimedia.org/" target="_blank" rel="noopener">Wikipedia</a> — the raw source most embedding models (word2vec, GloVe) and many LLM pretraining corpora draw from. <em>Selectable above</em> (via a Wikipedia snapshot, not the raw XML dumps directly).</li>
+      <li><a href="https://huggingface.co/datasets/Salesforce/wikitext" target="_blank" rel="noopener">Wikitext-103</a> — the long-range-dependency Wikipedia language modeling benchmark n-gram and early neural LMs are usually evaluated on. <em>Now gated on Hugging Face; no longer selectable above.</em></li>
+      <li><a href="https://skylion007.github.io/OpenWebTextCorpus/" target="_blank" rel="noopener">OpenWebText</a> — the open-source recreation of the WebText corpus GPT-2 was trained on.</li>
+      <li><a href="https://dumps.wikimedia.org/" target="_blank" rel="noopener">Wikipedia</a> — the raw source most embedding models (word2vec, GloVe) and many LLM pretraining corpora draw from.</li>
       <li><a href="https://books.google.com/ngrams" target="_blank" rel="noopener">Google Books Ngrams</a> — n-gram counts (1–5 grams) over the full scanned Google Books corpus. Not selectable: it's published as frequency tables, not sentences, so there's no text in it for these models to train on.</li>
     </ul>
   </div>
@@ -124,7 +128,6 @@
 <script src="ngram.js"></script>
 <script src="embeddings.js"></script>
 <script src="rnn.js"></script>
-<script src="livecorpus.js"></script>
 <script src="infinigram.js"></script>
 <script type="module" src="app.js"></script>
 </body>

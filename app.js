@@ -406,25 +406,24 @@ async function run() {
     models.includes('embeddings') || models.includes('rnn') || models.includes('llm');
 
   // Resolve the background text ONCE for the whole run: either the small
-  // built-in corpus, or a live random sample pulled from a real public
-  // dataset via livecorpus.js. Every n-gram order + embeddings + RNN below
-  // shares this same background text, same as before.
+  // built-in corpus, or a live sample of REAL documents pulled from the
+  // infini-gram index (see infinigram.js's fetchInfiniGramCorpusText).
+  // Every embeddings/RNN run below shares this same background text.
   // The n-gram models no longer need this at all — their background signal
-  // comes live from infini-gram now (see ngramPredict) — so this fetch is
-  // only relevant when embeddings and/or RNN are selected.
+  // comes live from infini-gram's next-token API instead (see ngramPredict)
+  // — so this fetch is only relevant when embeddings and/or RNN are
+  // selected.
   let backgroundText = (typeof BACKGROUND_CORPUS !== 'undefined') ? BACKGROUND_CORPUS : '';
   const corpusChoice = els.corpusSource ? els.corpusSource.value : 'builtin';
   const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn');
-  if (corpusChoice !== 'builtin' && needsBackground) {
-    const src = (typeof LIVE_SOURCES !== 'undefined') ? LIVE_SOURCES[corpusChoice] : null;
-    const srcLabel = src ? src.label : corpusChoice;
-    updateSpinnerMessage(`Fetching a live ${srcLabel} sample…`);
+  if (corpusChoice === 'infinigram' && needsBackground) {
+    updateSpinnerMessage(`Fetching real documents from infini-gram (${INFINIGRAM_LABEL})…`);
     await new Promise(r => setTimeout(r, 0));
     try {
-      backgroundText = await fetchLiveCorpusText(corpusChoice);
+      backgroundText = await fetchInfiniGramCorpusText();
     } catch (err) {
       console.error(err);
-      addErrorNote(`Couldn't fetch a live ${srcLabel} sample (${err.message || 'network/CORS issue'}) — used the built-in corpus instead.`);
+      addErrorNote(`Couldn't fetch a live infini-gram sample (${err.message || 'network issue'}) — used the built-in corpus instead.`);
     }
   }
 
@@ -551,8 +550,8 @@ async function run() {
   }
 
   hideSpinner();
-  const corpusNote = (corpusChoice !== 'builtin' && needsBackground)
-    ? ` (background: ${backgroundText === BACKGROUND_CORPUS ? 'built-in, fallback' : (LIVE_SOURCES[corpusChoice] ? LIVE_SOURCES[corpusChoice].label + ' live sample' : corpusChoice)})`
+  const corpusNote = (corpusChoice === 'infinigram' && needsBackground)
+    ? ` (background: ${backgroundText === BACKGROUND_CORPUS ? 'built-in, fallback' : INFINIGRAM_LABEL + ' live sample'})`
     : '';
   els.status.textContent = ranLabels.length
     ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}${corpusNote}.`

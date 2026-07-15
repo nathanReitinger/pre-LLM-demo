@@ -294,10 +294,21 @@ async function run() {
   showSpinner('Warming up…');
 
   const ranLabels = [];
-  // Training text for every model: the passage with blanks simply removed
-  // (a blank is a hole, not a word — it should never itself become part of
-  // any model's vocabulary or training counts).
-  const storyOnly = chunks.join(' ');
+  // Training text for every model: the passage with blanks removed. Chunks
+  // are joined with a sentence-ending period, NOT a bare space — joining
+  // with just a space would make the text immediately before a blank and
+  // the text immediately after it look like directly adjacent words to the
+  // n-gram/embeddings/RNN trainers (e.g. "...a juicy" + "that is..." would
+  // train the model on "juicy" being followed by "that", since that's
+  // literally what the blank-deleted sentence looks like). Since this is
+  // the user's own story, repeated via STORY_WEIGHT, that single artificial
+  // adjacency was strong enough to dominate every prediction. A period
+  // forces the tokenizer's sentence splitter to treat the two sides as
+  // separate sentences during training, so a blank's own left/right text
+  // is never fed back in as a false answer to itself. Left/right context
+  // for prediction is unaffected — that's computed straight from the
+  // individual chunks below, never from storyOnly.
+  const storyOnly = chunks.map(c => c.trim()).filter(Boolean).join('. ');
   const stillToRun = () =>
     models.includes('embeddings') || models.includes('rnn') || models.includes('llm');
 

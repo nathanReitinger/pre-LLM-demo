@@ -35,16 +35,79 @@ const INFINIGRAM_LABEL = 'Dolma-v1.7, 2.6T tokens (via infini-gram)';
 // standalone guessable word for this demo's table, so those are dropped.
 const WORD_START = '\u2581';
 
-async function infiniQuery(payload) {
+// --- Request throttling + retry -------------------------------------------
+// infini-gram is a shared public API with real rate limits. This app can
+// easily fire off 8+ requests in a burst (one per n-gram order per blank),
+// which was hitting 429s and silently falling back to local-only stats
+// every time (see ngramPredict's catch block in app.js — it swallows the
+// error and just doesn't tell you clearly it happened).
+//
+// Two independent fixes, both needed:
+//   1. A queue that only lets ONE infini-gram request be in flight at a
+//      time, with a minimum gap between requests starting — so a burst of
+//      8 calls from one run() becomes a gentle drip instead of a slam.
+//   2. Real retry-with-exponential-backoff+jitter specifically for 429s
+//      (and 5xx, which are also usually transient), so a request that gets
+//      rate-limited actually succeeds on the 2nd or 3rd try instead of
+//      giving up immediately.
+const MIN_GAP_MS = 250;       // minimum time between request starts
+const MAX_RETRIES = 4;        // retries after the first attempt
+const BASE_BACKOFF_MS = 600;  // doubled each retry, plus jitter
+
+let queueTail = Promise.resolve();
+let lastRequestAt = 0;
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// Serializes all infini-gram calls through one queue so they never overlap,
+// and enforces a minimum gap between request starts even when several
+// callers enqueue at once.
+function enqueue(task) {
+  const run = async () => {
+    const wait = Math.max(0, lastRequestAt + MIN_GAP_MS - Date.now());
+    if (wait > 0) await sleep(wait);
+    lastRequestAt = Date.now();
+    return task();
+  };
+  const result = queueTail.then(run, run); // run even if a prior task rejected
+  // Keep the chain alive regardless of this task's outcome, so one failure
+  // doesn't stall every request queued after it.
+  queueTail = result.catch(() => {});
+  return result;
+}
+
+async function rawInfiniQuery(payload) {
   const res = await fetch(INFINIGRAM_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ index: INFINIGRAM_INDEX, ...payload }),
   });
-  if (!res.ok) throw new Error(`infini-gram API returned ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`infini-gram API returned ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return data;
+}
+
+async function infiniQuery(payload) {
+  return enqueue(async () => {
+    let attempt = 0;
+    for (;;) {
+      try {
+        return await rawInfiniQuery(payload);
+      } catch (err) {
+        const retryable = err.status === 429 || (err.status >= 500 && err.status < 600);
+        if (!retryable || attempt >= MAX_RETRIES) throw err;
+        const backoff = BASE_BACKOFF_MS * Math.pow(2, attempt) + Math.random() * 300;
+        console.warn(`infini-gram request failed (${err.message}), retrying in ${Math.round(backoff)}ms — attempt ${attempt + 1}/${MAX_RETRIES}`);
+        await sleep(backoff);
+        attempt += 1;
+      }
+    }
+  });
 }
 
 // Real next-token distribution for an EXACT (order-1)-word context, queried
@@ -76,6 +139,12 @@ async function infiniNgramDistribution(contextText) {
 // and try again, all the way down to the plain unigram distribution (which
 // is always non-empty). This is the same idea as the local Kneser-Ney
 // backoff elsewhere in this app, just applied to the background corpus.
+//
+// Throws if every level's request actually FAILS (after retries) — the
+// caller (app.js) distinguishes "infini-gram had nothing to say" (empty
+// pairs, not an error) from "infini-gram was unreachable" (thrown error),
+// so the UI can label a fallback row honestly instead of claiming a blend
+// happened when it didn't.
 async function infiniNgramWithBackoff(rawWords, order) {
   for (let n = order - 1; n >= 0; n--) {
     const contextText = n === 0 ? '' : rawWords.slice(rawWords.length - n).join(' ');

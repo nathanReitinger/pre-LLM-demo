@@ -194,6 +194,7 @@ table.results-table td.model-cell .model-tag{
   display:block;font-size:.78rem;font-weight:400;font-style:italic;color:var(--ink-soft);
   text-transform:none;letter-spacing:0;margin-top:4px;white-space:normal;line-height:1.4;
 }
+tr.fallback-row td.model-cell .model-tag{color:#8a4b3b;}
 .pred-cell{font-size:.98rem;color:var(--ink);min-width:96px;line-height:1.5;}
 .pred-cell .pct{display:block;color:var(--ink-soft);font-style:italic;font-size:.85rem;margin-top:1px;}
 

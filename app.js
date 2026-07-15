@@ -109,11 +109,13 @@ async function ngramPredict(model, order, chunks, blankIdx, runs) {
   const rawWords = rawWordsBeforeBlank(chunks[blankIdx]);
 
   let infiniPairs = [];
+  let infiniFailed = false;
   try {
     const result = await infiniNgramWithBackoff(rawWords, order);
     infiniPairs = result.pairs;
   } catch (err) {
     console.error('infini-gram query failed:', err);
+    infiniFailed = true;
   }
 
   const localPairs = model.distribution(ctxTokens);
@@ -138,9 +140,11 @@ async function ngramPredict(model, order, chunks, blankIdx, runs) {
     if (weight <= 0) return;
     for (const [w, p] of pairs) blended.set(w, (blended.get(w) || 0) + weight * p);
   };
+  let usedBlend = false;
   if (infiniPairs.length > 0) {
     addMass(infiniPairs, 1 - alpha);
     addMass(localPairs, alpha);
+    usedBlend = true;
   } else {
     // infini-gram had nothing at all (or the request failed) — fall back
     // to pure local story statistics rather than dropping the row.
@@ -166,7 +170,8 @@ async function ngramPredict(model, order, chunks, blankIdx, runs) {
     for (const [w, c] of cum) { if (r <= c) { picked = w; break; } }
     counts.set(picked, (counts.get(picked) || 0) + 1);
   }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const freqPairs = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return { freqPairs, usedBlend, infiniFailed };
 }
 
 // Short "...last few words <blank> first few words..." caption for a
@@ -287,13 +292,23 @@ function predCell(word, pct) {
   return td;
 }
 
-function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns) {
+function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns, blendState) {
   const tbody = ensureBlankSection(blankIdx, blankCount, chunks);
   const top = freqPairs.slice(0, 8);
   const tr = document.createElement('tr');
   const modelTd = document.createElement('td');
   modelTd.className = 'model-cell';
-  modelTd.innerHTML = `${label}<span class="model-tag">n-gram · story blended with a live infini-gram query over ${INFINIGRAM_LABEL} · ${totalRuns} samples, left-context only</span>`;
+  let tag;
+  if (blendState && blendState.usedBlend) {
+    tag = `n-gram · story blended with a live infini-gram query over ${INFINIGRAM_LABEL} · ${totalRuns} samples, left-context only`;
+  } else if (blendState && blendState.infiniFailed) {
+    tag = `n-gram · story-only statistics — infini-gram request failed, no live blend this run · ${totalRuns} samples`;
+    tr.classList.add('fallback-row');
+  } else {
+    tag = `n-gram · story-only statistics — infini-gram had no data for this context · ${totalRuns} samples`;
+    tr.classList.add('fallback-row');
+  }
+  modelTd.innerHTML = `${label}<span class="model-tag">${tag}</span>`;
   tr.appendChild(modelTd);
   for (const [word, count] of top) {
     tr.appendChild(predCell(word, ((count / totalRuns) * 100).toFixed(1)));
@@ -444,15 +459,17 @@ async function run() {
           : `Querying infini-gram (${INFINIGRAM_LABEL}) for the ${MODEL_LABELS[key]}…`
       );
       await new Promise(r => setTimeout(r, 0));
-      let freqPairs;
+      let freqPairs, blendState;
       try {
-        freqPairs = await ngramPredict(model, MODEL_ORDER[key], chunks, b, runs);
+        const result = await ngramPredict(model, MODEL_ORDER[key], chunks, b, runs);
+        freqPairs = result.freqPairs;
+        blendState = { usedBlend: result.usedBlend, infiniFailed: result.infiniFailed };
       } catch (err) {
         console.error(err);
         freqPairs = runSamplingExperiment(model, leftContextTokens(chunks[b]), runs);
-        addErrorNote(`Couldn't reach infini-gram for the ${MODEL_LABELS[key]} (${err.message || 'network issue'}) — showing story-only statistics instead.`);
+        blendState = { usedBlend: false, infiniFailed: true };
       }
-      addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs);
+      addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs, blendState);
     }
 
     hideSpinner();

@@ -34,17 +34,33 @@ deploy.yml    – GitHub Actions workflow (copy into .github/workflows/)
   words immediately to the left of the blank — it has no idea what comes
   after, and no idea what the story is "about."
 
-  Smoothing uses **linear (Jelinek-Mercer) interpolation**, the standard
-  technique for this era of language modeling, not "stupid backoff."
-  Each order blends its own evidence with the order below it, weighted by
-  how many times that specific context has actually been seen — so a
-  well-attested trigram context can dominate, while a one-off trigram
-  barely nudges the bigram estimate. Combined with a much larger
-  background corpus, this means bigram/trigram/4-gram genuinely diverge
-  from each other instead of all just collapsing toward the unigram
-  distribution the moment an exact context is unseen (which is what
-  happens with stupid backoff on a small corpus — see `ngram.js` for the
-  full rationale).
+  Smoothing uses **generalized interpolated Kneser-Ney**, the technique
+  that actually made trigram/4-gram models competitive in the late
+  1990s–2000s (Chen & Goodman 1998). Every order blends its own evidence
+  with the order below it, weighted by how many times that specific
+  context has actually been seen — so a well-attested trigram context
+  can dominate, while a one-off trigram barely nudges the bigram
+  estimate. Two refinements beyond a textbook single-discount version:
+
+  - **Continuation counts at every backed-off order, not just the
+    unigram.** The classic explanation of KN only mentions "a word that
+    follows many different words ranks higher than one that follows
+    the same word often" at the unigram level. This implementation
+    applies that same idea whenever *any* order is being backed off to
+    — a trigram model backing off to bigram uses how many distinct
+    contexts each bigram continues, not just its raw count.
+  - **Per-order discount estimated from the corpus**, `D = n1/(n1+2·n2)`
+    (the original Kneser-Ney formula), instead of one hardcoded constant
+    for every order — a sparse order (4-gram on a short story, where
+    almost every count is 1) gets pulled toward a smaller, safer
+    discount automatically.
+
+  Combined with a topic-grounded background corpus (concrete objects
+  tied to real places — beach/seashell, forest/deer, city/taxi, etc.,
+  not just abstract filler sentences), this means bigram/trigram/4-gram
+  genuinely diverge from each other and from the unigram distribution
+  instead of collapsing into generic high-frequency words — see
+  `ngram.js` for the full rationale.
 - **LLM (DistilBERT, masked-language-model mode):** the blank is
   replaced with `[MASK]` and the *whole* passage — both sides of the
   blank — is fed through a small transformer that runs entirely in

@@ -35,13 +35,25 @@ function buildVocabForRNN(storySentences, bgSentences, maxVocab) {
 
 function zeros(n) { return new Float64Array(n); }
 function randInit(n, scale) { const a = new Float64Array(n); for (let i = 0; i < n; i++) a[i] = (Math.random() * 2 - 1) * scale; return a; }
+// Xavier/Glorot-style init: scale by 1/sqrt(fan_in) instead of a flat constant,
+// so layers of different widths (embedding V->H vs recurrent H->H vs output H->V)
+// each start with activations/gradients in a sane range instead of one width
+// starting too hot and another too cold.
+function xavierInit(rows, cols, fanIn) { return randInit(rows * cols, Math.sqrt(1 / fanIn)); }
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 function trainRNN(storyText, backgroundText, opts = {}) {
   const H = opts.hidden || 28;
   const maxVocab = opts.maxVocab || 550;
-  const epochs = opts.epochs || 6;
-  const lr = opts.lr || 0.15;
-  const maxTrainTokens = opts.maxTrainTokens || 5000;
+  const epochs = opts.epochs || 7;
+  const lr = opts.lr || 0.35; // Adagrad divides the effective step per-parameter, so this can run hotter than plain SGD's 0.15
+  const maxTrainTokens = opts.maxTrainTokens || 4200;
 
   const storySentences = toSentences(tokenize(storyText));
   const bgSentencesAll = toSentences(tokenize(backgroundText || ''));
@@ -65,11 +77,23 @@ function trainRNN(storyText, backgroundText, opts = {}) {
   const toId = (w) => (idx.has(w) ? idx.get(w) : UNK);
 
   // Parameters: input embedding (V x H), recurrent (H x H), output (H x V).
-  const Wxh = randInit(V * H, 0.1);
-  const Whh = randInit(H * H, 0.1 / Math.sqrt(H));
-  const Why = randInit(H * V, 0.1);
+  // Xavier-scaled so each matrix starts appropriately for its own fan-in
+  // rather than sharing one arbitrary constant across very different widths.
+  const Wxh = xavierInit(V, H, V);
+  const Whh = xavierInit(H, H, H);
+  const Why = xavierInit(H, V, H);
   const bh = zeros(H);
   const by = zeros(V);
+
+  // Adagrad accumulators: per-parameter adaptive learning rate. Words seen
+  // rarely (most of the vocab, on a short story) get proportionally bigger
+  // effective updates when they do appear, instead of the same tiny flat
+  // learning rate that plain SGD gives every parameter regardless of how
+  // often it's actually touched — this matters a lot when training for only
+  // a handful of epochs on a few thousand tokens.
+  const cacheWxh = zeros(V * H), cacheWhh = zeros(H * H), cacheWhy = zeros(H * V);
+  const cacheBh = zeros(H), cacheBy = zeros(V);
+  const EPS = 1e-8;
 
   function softmax(logits) {
     let max = -Infinity; for (const v of logits) if (v > max) max = v;
@@ -82,6 +106,7 @@ function trainRNN(storyText, backgroundText, opts = {}) {
   function clip(x, c) { return x > c ? c : x < -c ? -c : x; }
 
   for (let epoch = 0; epoch < epochs; epoch++) {
+    shuffle(trainSet); // avoid always seeing the (tripled) story sentences in the same clustered order
     for (const sent of trainSet) {
       if (sent.length < 2) continue;
       const ids = sent.map(toId);
@@ -149,13 +174,36 @@ function trainRNN(storyText, backgroundText, opts = {}) {
         dhNext = dhPrev;
       }
 
-      // clipped SGD update
+      // clipped Adagrad update: clip raw gradients first (same safety net as
+      // before against exploding BPTT gradients on the recurrent weights),
+      // then take an adaptive step sized by each parameter's own update
+      // history instead of one flat learning rate for the whole network.
       const C = 5;
-      for (let i = 0; i < Wxh.length; i++) Wxh[i] -= lr * clip(dWxh[i], C);
-      for (let i = 0; i < Whh.length; i++) Whh[i] -= lr * clip(dWhh[i], C);
-      for (let i = 0; i < Why.length; i++) Why[i] -= lr * clip(dWhy[i], C);
-      for (let i = 0; i < H; i++) bh[i] -= lr * clip(dbh[i], C);
-      for (let i = 0; i < V; i++) by[i] -= lr * clip(dby[i], C);
+      for (let i = 0; i < Wxh.length; i++) {
+        const g = clip(dWxh[i], C);
+        cacheWxh[i] += g * g;
+        Wxh[i] -= lr * g / (Math.sqrt(cacheWxh[i]) + EPS);
+      }
+      for (let i = 0; i < Whh.length; i++) {
+        const g = clip(dWhh[i], C);
+        cacheWhh[i] += g * g;
+        Whh[i] -= lr * g / (Math.sqrt(cacheWhh[i]) + EPS);
+      }
+      for (let i = 0; i < Why.length; i++) {
+        const g = clip(dWhy[i], C);
+        cacheWhy[i] += g * g;
+        Why[i] -= lr * g / (Math.sqrt(cacheWhy[i]) + EPS);
+      }
+      for (let i = 0; i < H; i++) {
+        const g = clip(dbh[i], C);
+        cacheBh[i] += g * g;
+        bh[i] -= lr * g / (Math.sqrt(cacheBh[i]) + EPS);
+      }
+      for (let i = 0; i < V; i++) {
+        const g = clip(dby[i], C);
+        cacheBy[i] += g * g;
+        by[i] -= lr * g / (Math.sqrt(cacheBy[i]) + EPS);
+      }
     }
   }
 

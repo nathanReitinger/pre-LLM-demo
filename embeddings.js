@@ -92,22 +92,38 @@ function buildEmbeddings(storyText, backgroundText, opts = {}) {
   // Truncated SVD of the symmetric PPMI matrix via randomized simultaneous
   // power iteration (subspace iteration) — fast, dependency-free, and exact
   // enough for a demo: repeatedly multiply a random V x dim block by M and
-  // re-orthonormalize (Gram-Schmidt).
+  // re-orthonormalize (Gram-Schmidt). With enough iterations this basis
+  // converges to (approximately) the top-|dim| eigenvectors of M, ordered by
+  // eigenvalue magnitude.
   let vectors = randomMatrix(V, dim);
   orthonormalize(vectors, V, dim);
-  const iters = 6;
+  const iters = 10;
+  let Mv = null;
   for (let it = 0; it < iters; it++) {
-    vectors = matMulSymmetric(M, vectors, V, dim);
+    Mv = matMulSymmetric(M, vectors, V, dim);
+    vectors = Mv;
     orthonormalize(vectors, V, dim);
   }
-  // Scale each word's vector by sqrt of its row norm in M so frequent,
-  // high-PPMI words get proportionally larger (more confident) vectors —
-  // an approximation of singular-value weighting without a full SVD.
-  for (let i = 0; i < V; i++) {
-    let rowNorm = 0;
-    for (let j = 0; j < V; j++) rowNorm += M[i * V + j] * M[i * V + j];
-    const scale = Math.pow(rowNorm, 0.25);
-    for (let d = 0; d < dim; d++) vectors[i * dim + d] *= (scale || 1e-6);
+
+  // Proper truncated-SVD scaling: embedding = eigenvectors * sqrt(eigenvalue),
+  // the standard LSA/word2vec-as-matrix-factorization construction (Levy &
+  // Goldberg 2014), rather than an ad hoc per-word magnitude fudge. Each
+  // orthonormal column's eigenvalue is estimated via its Rayleigh quotient
+  // v^T M v (valid since ||v|| = 1 after orthonormalization); dimensions that
+  // capture more corpus variance then contribute proportionally more to cosine
+  // similarity, and near-zero/negative directions (numerical noise, since PPMI
+  // matrices aren't guaranteed positive-semidefinite) are scaled to ~0 instead
+  // of counting equally alongside the real signal.
+  Mv = matMulSymmetric(M, vectors, V, dim);
+  const eigVals = new Float64Array(dim);
+  for (let d = 0; d < dim; d++) {
+    let num = 0;
+    for (let i = 0; i < V; i++) num += vectors[i * dim + d] * Mv[i * dim + d];
+    eigVals[d] = num;
+  }
+  for (let d = 0; d < dim; d++) {
+    const scale = Math.sqrt(Math.max(eigVals[d], 0));
+    for (let i = 0; i < V; i++) vectors[i * dim + d] *= scale;
   }
 
   return { vocab, idx, vectors, dim, V };

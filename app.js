@@ -119,9 +119,18 @@ async function ngramPredict(model, order, chunks, blankIdx, runs) {
 
   const localPairs = model.distribution(ctxTokens);
   const ctx = ctxTokens.slice(ctxTokens.length - (order - 1));
-  const localCount = order === 1
+  // model was trained on the story repeated STORY_WEIGHT times (so the local
+  // KN distribution/backoff has enough data to smooth well), which means raw
+  // counts pulled from it are inflated by exactly that factor. Undo the
+  // inflation here so `localCount` reflects how many times this context
+  // genuinely occurred in what the user actually wrote — otherwise alpha
+  // below over-trusts the local story (e.g. a phrase seen once for real
+  // reads as 3 occurrences) and the blend barely uses live infini-gram data
+  // at all, even for the unigram row.
+  const rawLocalCount = order === 1
     ? (model._unigramTotal || 0)
     : (model.contextTotal[order].get(model._key(ctx)) || 0);
+  const localCount = rawLocalCount / STORY_WEIGHT;
   const K = order === 1 ? UNIGRAM_LOCAL_K : NGRAM_LOCAL_K;
   const alpha = localCount / (localCount + K);
 

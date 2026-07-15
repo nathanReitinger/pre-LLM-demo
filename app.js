@@ -17,6 +17,12 @@ const els = {
 // The background corpus is always blended in at the same fixed strength —
 // this isn't a user-facing knob, just an internal smoothing constant.
 const BG_WEIGHT = 1;
+// How many extra times the user's own story sentences are counted relative
+// to the background corpus. The background corpus is now several thousand
+// sentences (up from a few hundred), so without this the story's own
+// specific bigrams/trigrams would get statistically swamped and the model
+// would just answer from generic background patterns instead of the story.
+const STORY_WEIGHT = 3;
 
 const MODEL_LABELS = {
   unigram: 'Unigram',
@@ -230,7 +236,7 @@ async function run() {
   for (const key of ngramModels) {
     updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story text…`);
     await new Promise(r => setTimeout(r, 0)); // let status paint
-    const model = buildModel(MODEL_ORDER[key], storyOnly, BACKGROUND_CORPUS, BG_WEIGHT);
+    const model = buildModel(MODEL_ORDER[key], storyOnly, BACKGROUND_CORPUS, BG_WEIGHT, STORY_WEIGHT);
 
     updateSpinnerMessage(`Sampling ${runs} guesses from the ${MODEL_LABELS[key]}…`);
     await new Promise(r => setTimeout(r, 0));

@@ -49,11 +49,11 @@ function shuffle(arr) {
 }
 
 function trainRNN(storyText, backgroundText, opts = {}) {
-  const H = opts.hidden || 28;
-  const maxVocab = opts.maxVocab || 550;
+  const H = opts.hidden || 32;
+  const maxVocab = opts.maxVocab || 700;
   const epochs = opts.epochs || 7;
   const lr = opts.lr || 0.35; // Adagrad divides the effective step per-parameter, so this can run hotter than plain SGD's 0.15
-  const maxTrainTokens = opts.maxTrainTokens || 4200;
+  const maxTrainTokens = opts.maxTrainTokens || 5000;
 
   const storySentences = toSentences(tokenize(storyText));
   const bgSentencesAll = toSentences(tokenize(backgroundText || ''));
@@ -66,7 +66,7 @@ function trainRNN(storyText, backgroundText, opts = {}) {
   const UNK = idx.get('<unk>');
 
   let trainSet = [];
-  for (let r = 0; r < 3; r++) trainSet.push(...storySentences); // weight the story up
+  for (let r = 0; r < 4; r++) trainSet.push(...storySentences); // weight the story up
   let tokenBudget = maxTrainTokens - trainSet.reduce((s, sent) => s + sent.length, 0);
   for (const s of bgSentencesAll) {
     if (tokenBudget <= 0) break;

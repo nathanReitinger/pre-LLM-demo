@@ -17,22 +17,31 @@
 
 const STOPWORDS = new Set([
   'the','a','an','and','or','but','of','to','in','on','at','for','with',
-  'as','is','was','were','be','been','being','it','its','this','that',
-  'these','those','i','you','he','she','they','we','who','which','what',
-  'when','where','why','how','not','no','so','if','than','then','there',
-  'here','their','his','her','my','your','our','have','has','had','do',
-  'does','did','will','would','could','should','can','may','might','from',
-  'by','up','out','about','into','over','after','before','between'
+  'as','is','am','are','was','were','be','been','being','it','its','this',
+  'that','these','those','i','you','he','she','they','we','who','which',
+  'what','when','where','why','how','not','no','so','if','than','then',
+  'there','here','their','his','her','my','your','our','have','has','had',
+  'do','does','did','will','would','could','should','can','may','might',
+  'from','by','up','out','about','into','over','after','before','between',
+  'just','also','very','too','again','once','get','got','one','all','any',
+  'each','more','most','some','such','only','own','same','both','few'
 ]);
 
 function buildEmbeddings(storyText, backgroundText, opts = {}) {
-  const dim = opts.dim || 24;
-  const window = opts.window || 4;
-  const maxVocab = opts.maxVocab || 900;
+  const dim = opts.dim || 26;
+  const window = opts.window || 5;
+  const maxVocab = opts.maxVocab || 950;
+  const storyWeight = opts.storyWeight || 3;
 
   const storySentences = toSentences(tokenize(storyText));
   const bgSentences = toSentences(tokenize(backgroundText || ''));
-  const allSentences = storySentences.concat(bgSentences);
+  // Repeat the story sentences before building co-occurrence counts, same
+  // reasoning as the n-gram model's storyWeight: a much bigger background
+  // corpus otherwise dilutes the specific co-occurrences that come only
+  // from the passage the user actually wrote.
+  const allSentences = [];
+  for (let i = 0; i < storyWeight; i++) allSentences.push(...storySentences);
+  allSentences.push(...bgSentences);
 
   // Frequency-limit the vocabulary so the co-occurrence matrix stays small
   // enough to factor in well under a second.
@@ -50,6 +59,14 @@ function buildEmbeddings(storyText, backgroundText, opts = {}) {
   const vocab = [...vocabSet];
   const idx = new Map(vocab.map((w, i) => [w, i]));
   const V = vocab.length;
+
+  // Raw word-occurrence frequencies (not co-occurrence mass) for each vocab
+  // word, plus the total token count across the whole corpus — used later by
+  // embeddingPredict for smooth-inverse-frequency weighting.
+  let totalFreq = 0;
+  for (const c of freq.values()) totalFreq += c;
+  const wordFreq = new Float64Array(V);
+  for (let i = 0; i < V; i++) wordFreq[i] = freq.get(vocab[i]) || 0;
 
   // Sparse co-occurrence counts within a symmetric window, distance-weighted
   // (closer words count more) — the standard GloVe-style windowing.
@@ -73,13 +90,32 @@ function buildEmbeddings(storyText, backgroundText, opts = {}) {
   }
   const totalMass = [...cooc.values()].reduce((a, b) => a + b, 0) * 2 || 1;
 
-  // PPMI: log( P(i,j) / (P(i)P(j)) ), floored at 0.
+  // Context distribution smoothing (Levy & Goldberg 2014, "word2vec as implicit
+  // matrix factorization", alpha=0.75): raise each word's marginal probability
+  // to the 0.75 power before using it as the PPMI denominator. Plain PPMI
+  // massively over-rewards a pair of words that happen to co-occur just once
+  // or twice purely because both words are individually rare — a single
+  // idiosyncratic sentence can then dominate a word's nearest neighbors. This
+  // is the standard fix (the same trick that makes skip-gram-negative-sampling
+  // embeddings behave well in practice) and keeps this squarely a PPMI/SVD
+  // model, just a properly-smoothed one.
+  const ALPHA = 0.75;
+  let smSum = 0;
+  const smWord = new Float64Array(V);
+  for (let i = 0; i < V; i++) { smWord[i] = Math.pow(totalPerWord[i], ALPHA); smSum += smWord[i]; }
+
+  // PPMI: log( P(i,j) / (P_alpha(i)P_alpha(j)) ), floored at 0. Also require a
+  // minimum raw co-occurrence weight so a single distant (low-weight) pairing
+  // can't seed an entry on its own — real signal should come from a word
+  // appearing near another consistently, not one stray sentence.
+  const MIN_WEIGHT = 0.4;
   const entries = []; // {i, j, val}
   for (const [key, w] of cooc) {
+    if (w < MIN_WEIGHT) continue;
     const [i, j] = key.split(',').map(Number);
     const pij = w / totalMass;
-    const pi = totalPerWord[i] / totalMass;
-    const pj = totalPerWord[j] / totalMass;
+    const pi = smWord[i] / (smSum || 1);
+    const pj = smWord[j] / (smSum || 1);
     const pmi = Math.log((pij + 1e-12) / (pi * pj + 1e-12));
     const ppmi = Math.max(pmi, 0);
     if (ppmi > 0) entries.push([i, j, ppmi]);
@@ -97,7 +133,7 @@ function buildEmbeddings(storyText, backgroundText, opts = {}) {
   // eigenvalue magnitude.
   let vectors = randomMatrix(V, dim);
   orthonormalize(vectors, V, dim);
-  const iters = 10;
+  const iters = 12;
   let Mv = null;
   for (let it = 0; it < iters; it++) {
     Mv = matMulSymmetric(M, vectors, V, dim);
@@ -126,7 +162,7 @@ function buildEmbeddings(storyText, backgroundText, opts = {}) {
     for (let i = 0; i < V; i++) vectors[i * dim + d] *= scale;
   }
 
-  return { vocab, idx, vectors, dim, V };
+  return { vocab, idx, vectors, dim, V, freq: wordFreq, totalFreq };
 }
 
 function randomMatrix(rows, cols) {
@@ -186,22 +222,31 @@ function cosine(vectors, dim, i, vec) {
 // BOTH sides (this is the point of the demo: no more left-only window),
 // then ranking the whole vocabulary by cosine similarity to that average.
 function embeddingPredict(emb, leftTokens, rightTokens, k = 8) {
-  const { vocab, idx, vectors, dim } = emb;
+  const { vocab, idx, vectors, dim, freq, totalFreq } = emb;
   const ctxWords = leftTokens.slice(-6).concat(rightTokens.slice(0, 6))
     .filter(w => idx.has(w) && !STOPWORDS.has(w));
   if (ctxWords.length === 0) {
     // fall back to any content words available at all
     leftTokens.concat(rightTokens).forEach(w => { if (idx.has(w)) ctxWords.push(w); });
   }
+  // Smooth-inverse-frequency weighting (Arora, Liu & Hashimoto 2017's "A Simple
+  // but Tough-to-Beat Baseline for Sentence Embeddings" — still just a weighted
+  // average of word vectors, the same family of technique as this whole model,
+  // but a much better one): a word that occurs in a huge fraction of sentences
+  // ("basket", "inside") is a weak signal about what specifically belongs here,
+  // while a rarer, more specific content word should pull the average harder.
+  const SIF_A = 1e-3;
   const avg = new Float64Array(dim);
-  let n = 0;
+  let wSum = 0;
   for (const w of ctxWords) {
     const off = idx.get(w) * dim;
-    for (let d = 0; d < dim; d++) avg[d] += vectors[off + d];
-    n++;
+    const wf = (freq && totalFreq) ? (freq[idx.get(w)] / totalFreq) : (1 / ctxWords.length);
+    const weight = SIF_A / (SIF_A + wf);
+    for (let d = 0; d < dim; d++) avg[d] += weight * vectors[off + d];
+    wSum += weight;
   }
-  if (n === 0) return vocab.slice(0, k).map(w => [w, 1 / k]);
-  for (let d = 0; d < dim; d++) avg[d] /= n;
+  if (wSum === 0) return vocab.slice(0, k).map(w => [w, 1 / k]);
+  for (let d = 0; d < dim; d++) avg[d] /= wSum;
 
   const ctxSet = new Set(ctxWords);
   const sims = vocab.map((w, i) => [w, cosine(vectors, dim, i, avg)])

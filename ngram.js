@@ -256,10 +256,16 @@ class NGramModel {
   }
 }
 
-function buildModel(order, storyText, backgroundText, backgroundWeight) {
+function buildModel(order, storyText, backgroundText, backgroundWeight, storyWeight = 1) {
   const model = new NGramModel(order);
   const storySentences = toSentences(tokenize(storyText));
-  const allSentences = storySentences.slice();
+  // Repeat the user's own story sentences storyWeight times before mixing in
+  // the (now much larger) background corpus. Without this, a several-thousand-
+  // sentence background corpus would statistically swamp the handful of
+  // story-specific bigrams/trigrams that should dominate when the story itself
+  // has already set up the answer (e.g. a named character's own actions).
+  const allSentences = [];
+  for (let i = 0; i < Math.max(1, Math.round(storyWeight)); i++) allSentences.push(...storySentences);
   if (backgroundWeight > 0) {
     const bgSentences = toSentences(tokenize(backgroundText));
     const reps = Math.max(1, Math.round(backgroundWeight));

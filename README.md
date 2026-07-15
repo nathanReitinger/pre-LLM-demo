@@ -28,11 +28,18 @@ deploy.yml    – GitHub Actions workflow (copy into .github/workflows/)
 ## How the models work
 
 - **N-grams (bi/tri/4-gram):** trained fresh in your browser on the
-  story + target sentence you type in, blended with a large (~19k-word,
-  ~2,200-sentence) built-in background corpus at a fixed weight
-  (`BG_WEIGHT` in `app.js`). Prediction only ever looks at the *n − 1*
-  words immediately to the left of the blank — it has no idea what comes
-  after, and no idea what the story is "about."
+  story + target sentence you type in, blended with a large (~42k-word,
+  ~3,700-sentence) built-in background corpus at a fixed weight
+  (`BG_WEIGHT` in `app.js`), spanning twenty grounded everyday topics —
+  including a fruit basket/kitchen topic and a hiking/wardrobe topic, so
+  common concrete prompts ("inside the fruit basket was a(n) ___", "I'm on
+  a hike so I'm wearing my ___") have real vocabulary to draw on instead of
+  falling back to generic filler words. The user's own story is counted
+  `STORY_WEIGHT` times (3, in `app.js`) relative to the background corpus,
+  so a well-attested story-specific pattern can still win out over generic
+  background statistics. Prediction only ever looks at the *n − 1* words
+  immediately to the left of the blank — it has no idea what comes after,
+  and no idea what the story is "about" beyond that local window.
 
   Smoothing uses **generalized interpolated Kneser-Ney**, the technique
   that actually made trigram/4-gram models competitive in the late

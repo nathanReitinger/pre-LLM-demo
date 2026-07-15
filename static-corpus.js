@@ -1,67 +1,84 @@
 // static-corpus.js
-// Loads a real, large text corpus that lives as many small chunk files
-// committed directly into this repo under static-corpus/ (see
-// fetch-static-corpus.js for how they were generated) — no Git LFS, no
-// third-party API at runtime. GitHub Pages serves these as plain static
-// files, so a same-origin fetch() is as reliable as loading style.css.
+// The ONE background-text source for the embeddings/RNN models: a real text
+// corpus (~1GB) split into small chunk files committed directly into this
+// repo under static-corpus/ (each safely under GitHub's 100MB file limit,
+// no Git LFS). GitHub Pages serves these as plain static files, so a
+// same-origin fetch() here is as reliable as loading style.css — no
+// third-party API, no rate limits, no gating.
 //
-// We don't want to download the whole 200+MB corpus on every run — we only
-// need a few hundred KB of real prose per experiment — so this fetches the
-// manifest once, then grabs a small random subset of chunk files per call.
+// We only need a few hundred KB of real prose per run, not the whole
+// corpus, so this fetches ONE random chunk file and takes a random slice
+// out of it rather than downloading everything.
 
 const STATIC_CORPUS_DIR = 'static-corpus';
 const STATIC_CORPUS_MANIFEST = `${STATIC_CORPUS_DIR}/manifest.json`;
+// Fallback list used only if manifest.json doesn't exist — matches the
+// naming produced by `split` + the rename loop in the setup instructions
+// (chunk-0001.txt, chunk-0002.txt, ...). Adjust FALLBACK_CHUNK_COUNT if you
+// have a different number of chunk files.
+const FALLBACK_CHUNK_COUNT = 12;
 
-let manifestPromise = null;
-function getManifest() {
-  if (!manifestPromise) {
-    manifestPromise = fetch(STATIC_CORPUS_MANIFEST).then((r) => {
-      if (!r.ok) throw new Error(`manifest fetch failed: ${r.status}`);
-      return r.json();
-    });
-  }
-  return manifestPromise;
+let chunkListPromise = null;
+
+async function getChunkList() {
+  if (chunkListPromise) return chunkListPromise;
+
+  chunkListPromise = (async () => {
+    try {
+      const res = await fetch(STATIC_CORPUS_MANIFEST);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.chunks) && data.chunks.length) return data.chunks;
+      }
+    } catch (e) {
+      // no manifest.json — fall through to the naming-convention guess below
+    }
+    const names = [];
+    for (let i = 1; i <= FALLBACK_CHUNK_COUNT; i++) {
+      names.push(`chunk-${String(i).padStart(4, '0')}.txt`);
+    }
+    return names;
+  })();
+
+  return chunkListPromise;
 }
 
 // Returns a blob of real plain text, ready to be tokenized into training
-// sentences exactly the way BACKGROUND_CORPUS / fetchInfiniGramCorpusText's
-// output is used elsewhere (see embeddings.js / rnn.js / app.js).
+// sentences exactly the way the built-in BACKGROUND_CORPUS text is used
+// elsewhere (see embeddings.js / rnn.js).
 async function fetchStaticCorpusText(opts = {}) {
-  const numChunks = opts.numChunks || 3;
   const maxChars = opts.maxChars || 400000;
 
-  const manifest = await getManifest();
-  const chunks = manifest.chunks || [];
-  if (!chunks.length) throw new Error('static corpus manifest is empty');
+  const chunks = await getChunkList();
+  if (!chunks.length) throw new Error('no static corpus chunks configured');
 
-  // Sample without replacement so a single call never fetches the same
-  // chunk twice, but different calls (different runs) land on different
-  // chunks over time.
+  // Try random chunks until one actually loads (in case the fallback guess
+  // includes a filename that doesn't exist).
   const pool = [...chunks];
-  const picked = [];
-  for (let i = 0; i < Math.min(numChunks, pool.length); i++) {
-    const j = Math.floor(Math.random() * pool.length);
-    picked.push(pool.splice(j, 1)[0]);
-  }
-
-  const texts = await Promise.all(
-    picked.map(async (name) => {
+  let text = '';
+  while (pool.length && !text) {
+    const i = Math.floor(Math.random() * pool.length);
+    const name = pool.splice(i, 1)[0];
+    try {
       const res = await fetch(`${STATIC_CORPUS_DIR}/${name}`);
-      if (!res.ok) throw new Error(`chunk fetch failed: ${name} (${res.status})`);
-      return res.text();
-    })
-  );
-
-  let text = texts.join('\n\n');
-  if (!text.trim()) throw new Error('static corpus sample came back empty');
-
-  // Take a random slice rather than always the start of the concatenated
-  // text, so repeated runs against the same chunk(s) still see different
-  // material.
-  if (text.length > maxChars) {
-    const start = Math.floor(Math.random() * Math.max(1, text.length - maxChars));
-    text = text.slice(start, start + maxChars);
+      if (!res.ok) continue;
+      const full = await res.text();
+      if (!full.trim()) continue;
+      // Random slice so repeated runs against the same chunk still vary,
+      // and so we never have to hold the whole ~95MB chunk in memory for
+      // longer than the one fetch.
+      if (full.length > maxChars) {
+        const start = Math.floor(Math.random() * Math.max(1, full.length - maxChars));
+        text = full.slice(start, start + maxChars);
+      } else {
+        text = full;
+      }
+    } catch (e) {
+      continue; // try another chunk
+    }
   }
+
+  if (!text) throw new Error('could not load any static corpus chunk');
   return text;
 }
 

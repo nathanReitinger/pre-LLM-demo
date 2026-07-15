@@ -17,7 +17,6 @@ const els = {
   status: document.getElementById('status'),
   results: document.getElementById('results'),
   picker: document.getElementById('model-picker'),
-  corpusSource: document.getElementById('corpus-source'),
 };
 
 // How many extra times the user's own story sentences are counted when
@@ -405,41 +404,25 @@ async function run() {
   const stillToRun = () =>
     models.includes('embeddings') || models.includes('rnn') || models.includes('llm');
 
-  // Resolve the background text ONCE for the whole run: either the small
-  // built-in corpus, or a live sample of REAL documents pulled from the
-  // infini-gram index (see infinigram.js's fetchInfiniGramCorpusText).
-  // Every embeddings/RNN run below shares this same background text.
-  // The n-gram models no longer need this at all — their background signal
-  // comes live from infini-gram's next-token API instead (see ngramPredict)
-  // — so this fetch is only relevant when embeddings and/or RNN are
-  // selected.
+  // Resolve the background text ONCE for the whole run: a real text sample
+  // pulled from the bundled static-corpus/ chunk files (see
+  // static-corpus.js) — no third-party API, no live network dependency
+  // beyond this site's own files. Falls back to the small built-in corpus
+  // if that somehow fails. Only relevant when embeddings and/or RNN are
+  // selected; the n-gram models get their background signal live from
+  // infini-gram instead (see ngramPredict above).
   let backgroundText = (typeof BACKGROUND_CORPUS !== 'undefined') ? BACKGROUND_CORPUS : '';
-  const corpusChoice = els.corpusSource ? els.corpusSource.value : 'builtin';
-  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn');
   let backgroundLabel = 'built-in';
-  if (corpusChoice === 'static' && needsBackground) {
-    // Real text, but loaded from small chunk files committed directly into
-    // this repo (see static-corpus/) instead of a live third-party API —
-    // no HF gating, no infini-gram flakiness, just a same-origin fetch()
-    // against files GitHub Pages is already serving.
-    updateSpinnerMessage('Loading a real text sample from the bundled static corpus…');
+  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn');
+  if (needsBackground) {
+    updateSpinnerMessage('Loading a real text sample from the bundled corpus…');
     await new Promise(r => setTimeout(r, 0));
     try {
       backgroundText = await fetchStaticCorpusText();
-      backgroundLabel = 'static sample (bundled, real text)';
+      backgroundLabel = 'static corpus (bundled, real text)';
     } catch (err) {
       console.error(err);
       addErrorNote(`Couldn't load the bundled static corpus (${err.message || 'error'}) — used the built-in corpus instead.`);
-    }
-  } else if (corpusChoice === 'infinigram' && needsBackground) {
-    updateSpinnerMessage(`Fetching real documents from infini-gram (${INFINIGRAM_LABEL})…`);
-    await new Promise(r => setTimeout(r, 0));
-    try {
-      backgroundText = await fetchInfiniGramCorpusText();
-      backgroundLabel = `${INFINIGRAM_LABEL} live sample`;
-    } catch (err) {
-      console.error(err);
-      addErrorNote(`Couldn't fetch a live infini-gram sample (${err.message || 'network issue'}) — used the built-in corpus instead.`);
     }
   }
 

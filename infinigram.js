@@ -36,23 +36,27 @@ const INFINIGRAM_LABEL = 'Dolma-v1.7, 2.6T tokens (via infini-gram)';
 const WORD_START = '\u2581';
 
 // --- Request throttling + retry -------------------------------------------
-// infini-gram is a shared public API with real rate limits. This app can
-// easily fire off 8+ requests in a burst (one per n-gram order per blank),
-// which was hitting 429s and silently falling back to local-only stats
-// every time (see ngramPredict's catch block in app.js — it swallows the
-// error and just doesn't tell you clearly it happened).
-//
-// Two independent fixes, both needed:
-//   1. A queue that only lets ONE infini-gram request be in flight at a
-//      time, with a minimum gap between requests starting — so a burst of
-//      8 calls from one run() becomes a gentle drip instead of a slam.
-//   2. Real retry-with-exponential-backoff+jitter specifically for 429s
-//      (and 5xx, which are also usually transient), so a request that gets
-//      rate-limited actually succeeds on the 2nd or 3rd try instead of
-//      giving up immediately.
-const MIN_GAP_MS = 250;       // minimum time between request starts
-const MAX_RETRIES = 4;        // retries after the first attempt
-const BASE_BACKOFF_MS = 600;  // doubled each retry, plus jitter
+// Two distinct failure modes can hit this API, and the first version of
+// this retry logic only handled one of them:
+//   1. HTTP-level failures (429 rate limit, 5xx) — the response comes back,
+//      just with a bad status code.
+//   2. Network-level failures — fetch() itself throws (CORS block, DNS,
+//      timeout, connection reset: "Failed to fetch" / "Load failed"). These
+//      have NO status code at all. The earlier version only retried on
+//      (1) and treated (2) as instantly fatal — which is almost certainly
+//      what was actually happening here, since every single row failed
+//      immediately rather than failing intermittently the way a rate limit
+//      would.
+// This version retries EITHER kind of failure, budgets real wall-clock time
+// toward it (the user explicitly said up to ~30s per request is fine), and
+// logs the actual underlying error so it's possible to tell which failure
+// mode is occurring from the browser console.
+const MIN_GAP_MS = 300;          // minimum time between request starts
+const MAX_RETRIES = 6;           // retries after the first attempt
+const BASE_BACKOFF_MS = 700;     // doubled each retry, plus jitter
+const MAX_BACKOFF_MS = 6000;     // cap per-wait so 6 retries fits in the time budget
+const TOTAL_TIME_BUDGET_MS = 28000; // give up around here regardless of retries left
+const FETCH_TIMEOUT_MS = 9000;   // a single attempt shouldn't hang forever
 
 let queueTail = Promise.resolve();
 let lastRequestAt = 0;
@@ -70,18 +74,39 @@ function enqueue(task) {
     return task();
   };
   const result = queueTail.then(run, run); // run even if a prior task rejected
-  // Keep the chain alive regardless of this task's outcome, so one failure
-  // doesn't stall every request queued after it.
-  queueTail = result.catch(() => {});
+  queueTail = result.catch(() => {}); // one failure doesn't stall the queue
   return result;
 }
 
+async function fetchWithTimeout(url, opts, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function rawInfiniQuery(payload) {
-  const res = await fetch(INFINIGRAM_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ index: INFINIGRAM_INDEX, ...payload }),
-  });
+  let res;
+  try {
+    res = await fetchWithTimeout(
+      INFINIGRAM_ENDPOINT,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: INFINIGRAM_INDEX, ...payload }),
+      },
+      FETCH_TIMEOUT_MS
+    );
+  } catch (networkErr) {
+    // fetch() itself threw: CORS block, DNS failure, connection reset, or
+    // our own timeout abort. No HTTP status exists for these.
+    const err = new Error(`network error reaching infini-gram: ${networkErr.message || networkErr.name}`);
+    err.networkFailure = true;
+    throw err;
+  }
   if (!res.ok) {
     const err = new Error(`infini-gram API returned ${res.status}`);
     err.status = res.status;
@@ -94,16 +119,26 @@ async function rawInfiniQuery(payload) {
 
 async function infiniQuery(payload) {
   return enqueue(async () => {
+    const startedAt = Date.now();
     let attempt = 0;
+    let lastErr = null;
     for (;;) {
       try {
-        return await rawInfiniQuery(payload);
+        const result = await rawInfiniQuery(payload);
+        if (attempt > 0) console.info(`infini-gram request succeeded after ${attempt} retr${attempt === 1 ? 'y' : 'ies'}`);
+        return result;
       } catch (err) {
-        const retryable = err.status === 429 || (err.status >= 500 && err.status < 600);
-        if (!retryable || attempt >= MAX_RETRIES) throw err;
-        const backoff = BASE_BACKOFF_MS * Math.pow(2, attempt) + Math.random() * 300;
-        console.warn(`infini-gram request failed (${err.message}), retrying in ${Math.round(backoff)}ms — attempt ${attempt + 1}/${MAX_RETRIES}`);
-        await sleep(backoff);
+        lastErr = err;
+        const retryable = err.networkFailure || err.status === 429 || (err.status >= 500 && err.status < 600);
+        const elapsed = Date.now() - startedAt;
+        console.warn(`infini-gram request failed (attempt ${attempt + 1}): ${err.message}`);
+        if (!retryable || attempt >= MAX_RETRIES || elapsed >= TOTAL_TIME_BUDGET_MS) {
+          console.error(`infini-gram giving up after ${attempt + 1} attempt(s), ${elapsed}ms — last error: ${err.message}`);
+          throw err;
+        }
+        const backoff = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * Math.pow(2, attempt)) + Math.random() * 300;
+        const remaining = TOTAL_TIME_BUDGET_MS - elapsed;
+        await sleep(Math.min(backoff, Math.max(0, remaining)));
         attempt += 1;
       }
     }
@@ -139,12 +174,6 @@ async function infiniNgramDistribution(contextText) {
 // and try again, all the way down to the plain unigram distribution (which
 // is always non-empty). This is the same idea as the local Kneser-Ney
 // backoff elsewhere in this app, just applied to the background corpus.
-//
-// Throws if every level's request actually FAILS (after retries) — the
-// caller (app.js) distinguishes "infini-gram had nothing to say" (empty
-// pairs, not an error) from "infini-gram was unreachable" (thrown error),
-// so the UI can label a fallback row honestly instead of claiming a blend
-// happened when it didn't.
 async function infiniNgramWithBackoff(rawWords, order) {
   for (let n = order - 1; n >= 0; n--) {
     const contextText = n === 0 ? '' : rawWords.slice(rawWords.length - n).join(' ');

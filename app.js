@@ -20,25 +20,23 @@ const els = {
 };
 
 // How many extra times the user's own story sentences are counted when
-// training the LOCAL part of each n-gram/embeddings/RNN model. The n-gram
-// models' background signal no longer comes from locally-trained text at
-// all (see ngramPredict / infinigram.js) — it comes from live infini-gram
-// queries against a real trillion-token corpus — but embeddings and RNN
-// still blend the story against a locally-trained background corpus, so
-// this weight still matters for those.
+// training every model — n-grams, embeddings, and RNN alike. All of them
+// now train on the SAME two ingredients: the user's story (repeated
+// STORY_WEIGHT times) plus a real text sample pulled from the bundled
+// static-corpus/ chunk files (see static-corpus.js). This replaces the old
+// design where the n-gram models instead blended their local counts with a
+// live query to the infini-gram API — that API stopped being reliable
+// enough to depend on, so everything now uses the same locally-trained,
+// no-network-required background source.
 const STORY_WEIGHT = 3;
 
-// How much to trust the local, story-only n-gram counts vs. the live
-// infini-gram background distribution for a given context: alpha rises
-// toward 1 as the exact context has been seen more times in the story
-// itself, so a well-attested story-specific pattern still wins, exactly
-// like the old STORY_WEIGHT-vs-background-corpus blend did — just with
-// infini-gram standing in for the background corpus now. UNIGRAM_LOCAL_K
-// is larger than NGRAM_LOCAL_K because "this word appeared in the story"
-// is much weaker evidence on its own than "this exact 2-3 word context
-// appeared".
-const NGRAM_LOCAL_K = 2;
-const UNIGRAM_LOCAL_K = 40;
+// How many times the background corpus's sentences are counted when
+// training the n-gram models, relative to one full pass. Kept modest (1x)
+// so a well-attested story-specific pattern (STORY_WEIGHT=3x) still tends
+// to win out, the same balance the old STORY_WEIGHT-vs-background design
+// struck, just with a bundled real corpus standing in for what used to be
+// a live infini-gram query.
+const NGRAM_BACKGROUND_WEIGHT = 1;
 
 const MODEL_LABELS = {
   unigram: 'Unigram',
@@ -87,91 +85,18 @@ function rightContextTokens(chunkAfter) {
   return sents.length ? sents[0] : [];
 }
 
-// Raw (original-case, unsplit-into-sentences) words immediately before the
-// blank, for querying infini-gram — the real Dolma corpus is case-sensitive
-// and works on real text, not the lowercased/sentence-boundary-stripped
-// tokens the local n-gram/embeddings/RNN trainers use.
-function rawWordsBeforeBlank(chunkBefore) {
-  return chunkBefore.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
-}
-
-// Predicts one blank for one n-gram order by blending two sources:
-//   1. A model trained ONLY on the user's own story (local, exact match)
-//   2. A live infini-gram query against a real trillion-token corpus
-// weighted by how many times the exact context has actually been seen in
-// the story — the same "story pattern can win out" idea the old
-// STORY_WEIGHT-vs-background-corpus design used, just with a real corpus
-// standing in for the background instead of a few thousand local sentences.
+// Predicts one blank for one n-gram order. The model passed in was already
+// trained on BOTH the user's story (repeated STORY_WEIGHT times) and a real
+// background text sample from the bundled static corpus (see buildModel's
+// backgroundWeight param, used the same way in `run()` below) — so no
+// runtime blending step is needed here, unlike the old infini-gram-backed
+// version. This just samples from that already-blended local distribution.
 // Returns [word, sampleCount] pairs so it can feed the existing table
 // renderer unchanged.
-async function ngramPredict(model, order, chunks, blankIdx, runs) {
+function ngramPredict(model, order, chunks, blankIdx, runs) {
   const ctxTokens = leftContextTokens(chunks[blankIdx]);
-  const rawWords = rawWordsBeforeBlank(chunks[blankIdx]);
-
-  let infiniPairs = [];
-  let infiniFailed = false;
-  try {
-    const result = await infiniNgramWithBackoff(rawWords, order);
-    infiniPairs = result.pairs;
-  } catch (err) {
-    console.error('infini-gram query failed:', err);
-    infiniFailed = true;
-  }
-
-  const localPairs = model.distribution(ctxTokens);
-  const ctx = ctxTokens.slice(ctxTokens.length - (order - 1));
-  // model was trained on the story repeated STORY_WEIGHT times (so the local
-  // KN distribution/backoff has enough data to smooth well), which means raw
-  // counts pulled from it are inflated by exactly that factor. Undo the
-  // inflation here so `localCount` reflects how many times this context
-  // genuinely occurred in what the user actually wrote — otherwise alpha
-  // below over-trusts the local story (e.g. a phrase seen once for real
-  // reads as 3 occurrences) and the blend barely uses live infini-gram data
-  // at all, even for the unigram row.
-  const rawLocalCount = order === 1
-    ? (model._unigramTotal || 0)
-    : (model.contextTotal[order].get(model._key(ctx)) || 0);
-  const localCount = rawLocalCount / STORY_WEIGHT;
-  const K = order === 1 ? UNIGRAM_LOCAL_K : NGRAM_LOCAL_K;
-  const alpha = localCount / (localCount + K);
-
-  const blended = new Map();
-  const addMass = (pairs, weight) => {
-    if (weight <= 0) return;
-    for (const [w, p] of pairs) blended.set(w, (blended.get(w) || 0) + weight * p);
-  };
-  let usedBlend = false;
-  if (infiniPairs.length > 0) {
-    addMass(infiniPairs, 1 - alpha);
-    addMass(localPairs, alpha);
-    usedBlend = true;
-  } else {
-    // infini-gram had nothing at all (or the request failed) — fall back
-    // to pure local story statistics rather than dropping the row.
-    addMass(localPairs, 1);
-  }
-  let total = 0;
-  for (const p of blended.values()) total += p;
-  const merged = [...blended.entries()]
-    .map(([w, p]) => [w, total > 0 ? p / total : 0])
-    .sort((a, b) => b[1] - a[1]);
-
-  // Sample `runs` draws from the blended distribution so the results table
-  // keeps its existing "N samples" presentation.
-  const cum = [];
-  let running = 0;
-  for (const [w, p] of merged) { running += p; cum.push([w, running]); }
-  const counts = new Map();
-  const cumTotal = cum.length ? cum[cum.length - 1][1] : 0;
-  for (let i = 0; i < runs; i++) {
-    if (!cum.length) break;
-    const r = Math.random() * cumTotal;
-    let picked = cum[cum.length - 1][0];
-    for (const [w, c] of cum) { if (r <= c) { picked = w; break; } }
-    counts.set(picked, (counts.get(picked) || 0) + 1);
-  }
-  const freqPairs = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  return { freqPairs, usedBlend, infiniFailed };
+  const freqPairs = runSamplingExperiment(model, ctxTokens, runs);
+  return { freqPairs };
 }
 
 // Short "...last few words <blank> first few words..." caption for a
@@ -292,22 +217,13 @@ function predCell(word, pct) {
   return td;
 }
 
-function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns, blendState) {
+function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns) {
   const tbody = ensureBlankSection(blankIdx, blankCount, chunks);
   const top = freqPairs.slice(0, 8);
   const tr = document.createElement('tr');
   const modelTd = document.createElement('td');
   modelTd.className = 'model-cell';
-  let tag;
-  if (blendState && blendState.usedBlend) {
-    tag = `n-gram · story blended with a live infini-gram query over ${INFINIGRAM_LABEL} · ${totalRuns} samples, left-context only`;
-  } else if (blendState && blendState.infiniFailed) {
-    tag = `n-gram · story-only statistics — infini-gram request failed, no live blend this run · ${totalRuns} samples`;
-    tr.classList.add('fallback-row');
-  } else {
-    tag = `n-gram · story-only statistics — infini-gram had no data for this context · ${totalRuns} samples`;
-    tr.classList.add('fallback-row');
-  }
+  const tag = `n-gram · story blended with a bundled real-text background corpus · ${totalRuns} samples, left-context only`;
   modelTd.innerHTML = `${label}<span class="model-tag">${tag}</span>`;
   tr.appendChild(modelTd);
   for (const [word, count] of top) {
@@ -423,12 +339,13 @@ async function run() {
   // pulled from the bundled static-corpus/ chunk files (see
   // static-corpus.js) — no third-party API, no live network dependency
   // beyond this site's own files. Falls back to the small built-in corpus
-  // if that somehow fails. Only relevant when embeddings and/or RNN are
-  // selected; the n-gram models get their background signal live from
-  // infini-gram instead (see ngramPredict above).
+  // if that somehow fails. Every model that uses a background signal at all
+  // (n-grams, embeddings, RNN) now shares this same real-text sample —
+  // this replaced the old design where the n-gram models instead queried
+  // the (no longer reliable) infini-gram API live per prediction.
   let backgroundText = (typeof BACKGROUND_CORPUS !== 'undefined') ? BACKGROUND_CORPUS : '';
   let backgroundLabel = 'built-in';
-  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn');
+  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn' || m in MODEL_ORDER);
   if (needsBackground) {
     updateSpinnerMessage('Loading a real text sample from the bundled corpus…');
     await new Promise(r => setTimeout(r, 0));
@@ -445,31 +362,23 @@ async function run() {
 
   const ngramModels = models.filter(m => m in MODEL_ORDER);
   for (const key of ngramModels) {
-    updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story text…`);
+    updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story + bundled corpus…`);
     await new Promise(r => setTimeout(r, 0)); // let status paint
-    // No background text passed in at all — background weight 0 means this
-    // model only ever sees the user's own story. Its background signal now
-    // comes from live infini-gram queries in ngramPredict below.
-    const model = buildModel(MODEL_ORDER[key], storyOnly, '', 0, STORY_WEIGHT);
+    // Background text now comes from the same bundled static-corpus sample
+    // every other model uses, blended in via buildModel's own
+    // backgroundWeight mixing (see ngram.js) rather than a per-prediction
+    // live query.
+    const model = buildModel(MODEL_ORDER[key], storyOnly, backgroundText, NGRAM_BACKGROUND_WEIGHT, STORY_WEIGHT);
 
     for (const b of blankIdxs) {
       updateSpinnerMessage(
         blankCount > 1
-          ? `Querying infini-gram (${INFINIGRAM_LABEL}) for the ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
-          : `Querying infini-gram (${INFINIGRAM_LABEL}) for the ${MODEL_LABELS[key]}…`
+          ? `Sampling the ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
+          : `Sampling the ${MODEL_LABELS[key]}…`
       );
       await new Promise(r => setTimeout(r, 0));
-      let freqPairs, blendState;
-      try {
-        const result = await ngramPredict(model, MODEL_ORDER[key], chunks, b, runs);
-        freqPairs = result.freqPairs;
-        blendState = { usedBlend: result.usedBlend, infiniFailed: result.infiniFailed };
-      } catch (err) {
-        console.error(err);
-        freqPairs = runSamplingExperiment(model, leftContextTokens(chunks[b]), runs);
-        blendState = { usedBlend: false, infiniFailed: true };
-      }
-      addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs, blendState);
+      const { freqPairs } = ngramPredict(model, MODEL_ORDER[key], chunks, b, runs);
+      addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs);
     }
 
     hideSpinner();

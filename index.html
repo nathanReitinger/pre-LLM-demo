@@ -31,7 +31,8 @@
     <div class="field-group wide">
       <label class="field-label" for="corpus-source">Background corpus <span class="hint">— what the embeddings / RNN models train on besides your story</span></label>
       <select id="corpus-source">
-        <option value="builtin" selected>Built-in demo corpus (instant, offline)</option>
+        <option value="builtin">Built-in demo corpus (instant, offline)</option>
+        <option value="static" selected>Real text sample (bundled with this site, ~200MB pool)</option>
         <option value="infinigram">Live sample: real documents via infini-gram (Dolma-v1.7)</option>
       </select>
       <p class="hint tiny">This only affects <b>Embeddings</b> and <b>RNN</b> below. The <b>n-gram models
@@ -125,6 +126,7 @@
 </footer>
 
 <script src="corpus.js"></script>
+<script src="static-corpus.js"></script>
 <script src="ngram.js"></script>
 <script src="embeddings.js"></script>
 <script src="rnn.js"></script>

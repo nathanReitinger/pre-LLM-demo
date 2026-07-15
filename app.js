@@ -416,11 +416,27 @@ async function run() {
   let backgroundText = (typeof BACKGROUND_CORPUS !== 'undefined') ? BACKGROUND_CORPUS : '';
   const corpusChoice = els.corpusSource ? els.corpusSource.value : 'builtin';
   const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn');
-  if (corpusChoice === 'infinigram' && needsBackground) {
+  let backgroundLabel = 'built-in';
+  if (corpusChoice === 'static' && needsBackground) {
+    // Real text, but loaded from small chunk files committed directly into
+    // this repo (see static-corpus/) instead of a live third-party API —
+    // no HF gating, no infini-gram flakiness, just a same-origin fetch()
+    // against files GitHub Pages is already serving.
+    updateSpinnerMessage('Loading a real text sample from the bundled static corpus…');
+    await new Promise(r => setTimeout(r, 0));
+    try {
+      backgroundText = await fetchStaticCorpusText();
+      backgroundLabel = 'static sample (bundled, real text)';
+    } catch (err) {
+      console.error(err);
+      addErrorNote(`Couldn't load the bundled static corpus (${err.message || 'error'}) — used the built-in corpus instead.`);
+    }
+  } else if (corpusChoice === 'infinigram' && needsBackground) {
     updateSpinnerMessage(`Fetching real documents from infini-gram (${INFINIGRAM_LABEL})…`);
     await new Promise(r => setTimeout(r, 0));
     try {
       backgroundText = await fetchInfiniGramCorpusText();
+      backgroundLabel = `${INFINIGRAM_LABEL} live sample`;
     } catch (err) {
       console.error(err);
       addErrorNote(`Couldn't fetch a live infini-gram sample (${err.message || 'network issue'}) — used the built-in corpus instead.`);
@@ -550,9 +566,7 @@ async function run() {
   }
 
   hideSpinner();
-  const corpusNote = (corpusChoice === 'infinigram' && needsBackground)
-    ? ` (background: ${backgroundText === BACKGROUND_CORPUS ? 'built-in, fallback' : INFINIGRAM_LABEL + ' live sample'})`
-    : '';
+  const corpusNote = needsBackground ? ` (background: ${backgroundLabel})` : '';
   els.status.textContent = ranLabels.length
     ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}${corpusNote}.`
     : `Nothing ran — check the browser console for errors.`;

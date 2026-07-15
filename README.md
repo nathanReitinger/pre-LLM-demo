@@ -2,15 +2,22 @@
 
 A static, client-side site that trains classic n-gram language models
 (unigram / bigram / trigram / 4-gram) live in the browser on a short
-story you provide, samples the blank 1000 times per model, and shows
+story you provide, samples each blank 1000 times per model, and shows
 the resulting word-frequency distribution — next to a real small
 language model (DistilBERT, running in-browser via
 [transformers.js](https://github.com/xenova/transformers.js)) filling
-the same blank using full bidirectional context.
+the same blank(s) using full bidirectional context.
 
-Everything runs client-side. There is no backend, no API key, and
-nothing to configure — which is why it works as a plain GitHub Pages
-site.
+Mark a word to guess with `<blank>` (case-insensitive; a run of three or
+more underscores, `___`, still works too, for backwards compatibility).
+A passage can contain **more than one** `<blank>` — each one gets its
+own results section, and every model predicts each blank independently
+from its own surrounding real words. Other, still-unresolved blanks in
+the same passage are never fed in as context to the n-gram/embeddings/RNN
+models (there's no real word there to condition on yet); the masked LLM
+is the exception, since a single forward pass over the whole passage with
+one `[MASK]` per blank lets it use the *actual* surrounding text for every
+hole at once, which is exactly what bidirectional attention is for.
 
 ## Files
 
@@ -95,6 +102,25 @@ deploy.yml    – GitHub Actions workflow (copy into .github/workflows/)
 
 No other configuration is required. If you rename files, update the
 `<script>` and `<link>` tags in `index.html` to match.
+
+## Real-world corpora these techniques were trained on
+
+The background corpus in `corpus.js` is a small, hand-written stand-in
+so the demo trains instantly in-browser. The actual datasets each era
+of this field was trained/evaluated on at scale are much bigger:
+
+- [Wikitext-103](https://huggingface.co/datasets/Salesforce/wikitext) —
+  the standard long-range-dependency Wikipedia language modeling
+  benchmark used to evaluate n-gram and early neural LMs.
+- [Google Books Ngrams](https://books.google.com/ngrams) — 1–5 gram
+  frequency counts over the entire scanned Google Books corpus.
+- [OpenWebText](https://skylion007.github.io/OpenWebTextCorpus/) — the
+  open-source recreation of the WebText corpus GPT-2 was trained on.
+- [Wikipedia Dumps](https://dumps.wikimedia.org/) — the raw source most
+  embedding models (word2vec, GloVe) and many LLM pretraining corpora
+  draw from.
+
+These are linked in the site footer too.
 
 ## Customizing
 

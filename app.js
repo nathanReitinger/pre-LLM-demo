@@ -2,8 +2,13 @@
 // Wires up the UI: builds n-gram models from the story text, runs the
 // sampling experiment for each selected model, and (optionally) runs
 // a real small language model fully in-browser via transformers.js for
-// a bidirectional-context comparison. Results are rendered as a single
-// horizontally-scrollable comparison table.
+// a bidirectional-context comparison.
+//
+// Blanks are marked with <blank> (case-insensitive). A passage can
+// contain more than one <blank> — each one gets its own results
+// section below, and every model predicts each blank independently
+// from its own surrounding real words (other blanks in the passage
+// are never treated as context, since their value is unknown).
 
 const els = {
   prompt: document.getElementById('prompt'),
@@ -32,24 +37,56 @@ const MODEL_LABELS = {
 };
 const MODEL_ORDER = { unigram: 1, bigram: 2, trigram: 3, fourgram: 4 };
 
+// Recognizes <blank> (any casing, optional whitespace inside the tag) as
+// the canonical marker. A run of 3+ underscores is still accepted too, so
+// passages written for the old marker keep working.
+const BLANK_RE = /<\s*blank\s*>|_{3,}/gi;
+
+const CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳'];
+function blankMarker(n) { return CIRCLED[n - 1] || `[${n}]`; }
+
 function selectedModels() {
   return [...els.picker.querySelectorAll('input[type=checkbox]:checked')].map(i => i.value);
 }
 
-function splitOnBlank(text) {
-  const idx = text.indexOf('___');
-  if (idx === -1) return null;
-  return { before: text.slice(0, idx), after: text.slice(idx + 3) };
+// Splits the passage on every blank marker into text.length+1 "chunks".
+// chunks[i] is the real text that sits immediately before blank i (and
+// chunks[0] is everything before the first blank); chunks[chunks.length-1]
+// is everything after the last blank. Returns null if there's no blank.
+function splitOnBlanks(text) {
+  const matches = [...text.matchAll(BLANK_RE)];
+  if (!matches.length) return null;
+  const chunks = [];
+  let last = 0;
+  for (const m of matches) {
+    chunks.push(text.slice(last, m.index));
+    last = m.index + m[0].length;
+  }
+  chunks.push(text.slice(last));
+  return chunks;
 }
 
-function leftContextTokens(before) {
-  const sents = toSentences(tokenize(before));
+function leftContextTokens(chunkBefore) {
+  const sents = toSentences(tokenize(chunkBefore));
   return sents.length ? sents[sents.length - 1] : [];
 }
 
-function rightContextTokens(after) {
-  const sents = toSentences(tokenize(after));
+function rightContextTokens(chunkAfter) {
+  const sents = toSentences(tokenize(chunkAfter));
   return sents.length ? sents[0] : [];
+}
+
+// Short "...last few words <blank> first few words..." caption for a
+// single blank's results section, so it's obvious which hole a table
+// belongs to without rereading the whole passage.
+function localSnippet(chunks, blankIdx) {
+  const beforeWords = chunks[blankIdx].trim().split(/\s+/).filter(Boolean);
+  const afterWords = chunks[blankIdx + 1].trim().split(/\s+/).filter(Boolean);
+  const before = beforeWords.slice(-8).join(' ');
+  const after = afterWords.slice(0, 8).join(' ');
+  const leadIn = beforeWords.length > 8 ? '…' : '';
+  const leadOut = afterWords.length > 8 ? '…' : '';
+  return `${leadIn}${before} <b>___</b> ${after}${leadOut}`.trim();
 }
 
 // The spinner lives in its own full-page overlay, completely separate from
@@ -89,13 +126,13 @@ function hideSpinner() {
   if (overlayEl) overlayEl.classList.remove('visible');
 }
 
-let tableEl = null;
-let tbodyEl = null;
+// One table (and its own tbody) per blank, keyed by blank index.
+let blankSections = new Map();
+let resultsHeaderBuilt = false;
 
-function ensureResultsTable(preview) {
-  if (tableEl) return tbodyEl;
+function ensureResultsHeader(preview) {
+  if (resultsHeaderBuilt) return;
   els.results.innerHTML = '';
-
   const heading = document.createElement('h2');
   heading.className = 'results-heading';
   heading.textContent = 'Results';
@@ -105,6 +142,27 @@ function ensureResultsTable(preview) {
   previewEl.className = 'sentence-preview';
   previewEl.innerHTML = preview;
   els.results.appendChild(previewEl);
+
+  resultsHeaderBuilt = true;
+}
+
+function ensureBlankSection(blankIdx, blankCount, chunks) {
+  if (blankSections.has(blankIdx)) return blankSections.get(blankIdx).tbody;
+
+  const section = document.createElement('div');
+  section.className = 'blank-section';
+
+  if (blankCount > 1) {
+    const sub = document.createElement('h3');
+    sub.className = 'blank-heading';
+    sub.innerHTML = `Blank ${blankMarker(blankIdx + 1)}`;
+    section.appendChild(sub);
+
+    const caption = document.createElement('p');
+    caption.className = 'blank-caption';
+    caption.innerHTML = localSnippet(chunks, blankIdx);
+    section.appendChild(caption);
+  }
 
   const scroll = document.createElement('div');
   scroll.className = 'table-scroll';
@@ -121,11 +179,12 @@ function ensureResultsTable(preview) {
     <tbody></tbody>
   `;
   scroll.appendChild(table);
-  els.results.appendChild(scroll);
+  section.appendChild(scroll);
+  els.results.appendChild(section);
 
-  tableEl = table;
-  tbodyEl = table.querySelector('tbody');
-  return tbodyEl;
+  const tbody = table.querySelector('tbody');
+  blankSections.set(blankIdx, { table, tbody });
+  return tbody;
 }
 
 function predCell(word, pct) {
@@ -135,8 +194,8 @@ function predCell(word, pct) {
   return td;
 }
 
-function addNgramRow(label, freqPairs, totalRuns) {
-  const tbody = ensureResultsTable(currentPreview);
+function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns) {
+  const tbody = ensureBlankSection(blankIdx, blankCount, chunks);
   const top = freqPairs.slice(0, 8);
   const tr = document.createElement('tr');
   const modelTd = document.createElement('td');
@@ -150,8 +209,8 @@ function addNgramRow(label, freqPairs, totalRuns) {
   tbody.appendChild(tr);
 }
 
-function addLLMRow(predictions) {
-  const tbody = ensureResultsTable(currentPreview);
+function addLLMRow(blankIdx, blankCount, chunks, predictions) {
+  const tbody = ensureBlankSection(blankIdx, blankCount, chunks);
   const top = predictions.slice(0, 8);
   const tr = document.createElement('tr');
   const modelTd = document.createElement('td');
@@ -167,8 +226,8 @@ function addLLMRow(predictions) {
 
 // Shared renderer for any model that already produces [word, probability]
 // pairs (0-1 range) — used by the embeddings and RNN models.
-function addVectorRow(label, tag, pairs) {
-  const tbody = ensureResultsTable(currentPreview);
+function addVectorRow(blankIdx, blankCount, chunks, label, tag, pairs) {
+  const tbody = ensureBlankSection(blankIdx, blankCount, chunks);
   const top = pairs.slice(0, 8);
   const tr = document.createElement('tr');
   const modelTd = document.createElement('td');
@@ -183,7 +242,6 @@ function addVectorRow(label, tag, pairs) {
 }
 
 function addErrorNote(message) {
-  ensureResultsTable(currentPreview);
   const note = document.createElement('p');
   note.className = 'error-note';
   note.textContent = message;
@@ -200,16 +258,14 @@ async function getLLMPipeline(setStatus) {
   return llmPipelinePromise;
 }
 
-let currentPreview = '';
-
 async function run() {
   const promptText = els.prompt.value.trim();
   const runs = Math.max(10, Math.min(5000, parseInt(els.runs.value, 10) || 1000));
   const models = selectedModels();
 
-  const split = splitOnBlank(promptText);
-  if (!split) {
-    els.status.textContent = 'Add "___" (three underscores) somewhere in the prompt to mark the blank.';
+  const chunks = splitOnBlanks(promptText);
+  if (!chunks) {
+    els.status.textContent = 'Mark at least one word to guess with <blank> somewhere in the prompt.';
     return;
   }
   if (models.length === 0) {
@@ -217,20 +273,34 @@ async function run() {
     return;
   }
 
-  els.runBtn.disabled = true;
-  tableEl = null;
-  tbodyEl = null;
+  const blankCount = chunks.length - 1;
 
-  const ctxTokens = leftContextTokens(split.before);
-  const previewMarker = '<b>___</b>';
-  currentPreview = `${split.before.trim()} ${previewMarker} ${split.after.trim()}`.trim();
+  els.runBtn.disabled = true;
+  blankSections = new Map();
+  resultsHeaderBuilt = false;
+
+  // Whole-passage preview with every blank replaced by a numbered marker,
+  // so it's clear at a glance which table below corresponds to which hole.
+  const previewHtml = chunks
+    .map(c => c.trim())
+    .reduce((acc, chunk, i) => {
+      if (i === 0) return chunk;
+      return `${acc} <b class="blank-marker">${blankMarker(i)}</b> ${chunk}`;
+    }, '')
+    .trim();
+  ensureResultsHeader(previewHtml);
 
   showSpinner('Warming up…');
 
   const ranLabels = [];
-  const storyOnly = promptText.replace('___', '');
+  // Training text for every model: the passage with blanks simply removed
+  // (a blank is a hole, not a word — it should never itself become part of
+  // any model's vocabulary or training counts).
+  const storyOnly = chunks.join(' ');
   const stillToRun = () =>
     models.includes('embeddings') || models.includes('rnn') || models.includes('llm');
+
+  const blankIdxs = Array.from({ length: blankCount }, (_, i) => i);
 
   const ngramModels = models.filter(m => m in MODEL_ORDER);
   for (const key of ngramModels) {
@@ -238,12 +308,19 @@ async function run() {
     await new Promise(r => setTimeout(r, 0)); // let status paint
     const model = buildModel(MODEL_ORDER[key], storyOnly, BACKGROUND_CORPUS, BG_WEIGHT, STORY_WEIGHT);
 
-    updateSpinnerMessage(`Sampling ${runs} guesses from the ${MODEL_LABELS[key]}…`);
-    await new Promise(r => setTimeout(r, 0));
-    const freqPairs = runSamplingExperiment(model, ctxTokens, runs);
+    for (const b of blankIdxs) {
+      updateSpinnerMessage(
+        blankCount > 1
+          ? `Sampling ${runs} guesses from the ${MODEL_LABELS[key]} for blank ${b + 1} of ${blankCount}…`
+          : `Sampling ${runs} guesses from the ${MODEL_LABELS[key]}…`
+      );
+      await new Promise(r => setTimeout(r, 0));
+      const ctxTokens = leftContextTokens(chunks[b]);
+      const freqPairs = runSamplingExperiment(model, ctxTokens, runs);
+      addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs);
+    }
 
     hideSpinner();
-    addNgramRow(MODEL_LABELS[key], freqPairs, runs);
     ranLabels.push(MODEL_LABELS[key]);
     if (ngramModels.indexOf(key) < ngramModels.length - 1 || stillToRun()) {
       showSpinner('Preparing next model…');
@@ -255,12 +332,19 @@ async function run() {
     await new Promise(r => setTimeout(r, 0));
     try {
       const emb = buildEmbeddings(storyOnly, BACKGROUND_CORPUS);
-      updateSpinnerMessage('Averaging context vectors and ranking neighbors…');
-      await new Promise(r => setTimeout(r, 0));
-      const rightTokens = rightContextTokens(split.after);
-      const preds = embeddingPredict(emb, ctxTokens, rightTokens, 8);
+      for (const b of blankIdxs) {
+        updateSpinnerMessage(
+          blankCount > 1
+            ? `Averaging context vectors for blank ${b + 1} of ${blankCount}…`
+            : 'Averaging context vectors and ranking neighbors…'
+        );
+        await new Promise(r => setTimeout(r, 0));
+        const leftTokens = leftContextTokens(chunks[b]);
+        const rightTokens = rightContextTokens(chunks[b + 1]);
+        const preds = embeddingPredict(emb, leftTokens, rightTokens, 8);
+        addVectorRow(b, blankCount, chunks, 'Embeddings', 'PPMI + SVD · vector similarity, left + right context', preds);
+      }
       hideSpinner();
-      addVectorRow('Embeddings', 'PPMI + SVD · vector similarity, left + right context', preds);
       ranLabels.push('Embeddings');
     } catch (err) {
       console.error(err);
@@ -275,11 +359,18 @@ async function run() {
     await new Promise(r => setTimeout(r, 0));
     try {
       const rnnModel = trainRNN(storyOnly, BACKGROUND_CORPUS);
-      updateSpinnerMessage('Running the RNN forward over the left context…');
-      await new Promise(r => setTimeout(r, 0));
-      const preds = rnnPredict(rnnModel, ctxTokens, 8);
+      for (const b of blankIdxs) {
+        updateSpinnerMessage(
+          blankCount > 1
+            ? `Running the RNN forward for blank ${b + 1} of ${blankCount}…`
+            : 'Running the RNN forward over the left context…'
+        );
+        await new Promise(r => setTimeout(r, 0));
+        const ctxTokens = leftContextTokens(chunks[b]);
+        const preds = rnnPredict(rnnModel, ctxTokens, 8);
+        addVectorRow(b, blankCount, chunks, 'RNN', 'live-trained · running hidden state, left context only', preds);
+      }
       hideSpinner();
-      addVectorRow('RNN', 'live-trained · running hidden state, left context only', preds);
       ranLabels.push('RNN');
     } catch (err) {
       console.error(err);
@@ -294,10 +385,26 @@ async function run() {
     try {
       const pipe = await getLLMPipeline(msg => updateSpinnerMessage(msg));
       updateSpinnerMessage('Running DistilBERT on the full passage…');
-      const maskedSentence = `${split.before}[MASK]${split.after}`.replace(/\s+/g, ' ').trim();
-      const predictions = await pipe(maskedSentence, { topk: 10 });
+      // Replace every blank with a single [MASK] token in one pass, rather
+      // than looping per blank — a masked LM predicts all mask positions
+      // from one shared bidirectional forward pass over the *whole*
+      // passage, so this is both more correct (every blank actually gets
+      // the real text of every other blank position as context, not a
+      // leftover stray marker) and faster than calling the pipeline once
+      // per blank.
+      const maskedSentence = chunks.join('[MASK]').replace(/\s+/g, ' ').trim();
+      const rawPredictions = await pipe(maskedSentence, { topk: 10 });
+      // transformers.js returns a flat array of predictions when there is
+      // exactly one [MASK], and an array of arrays (one per mask, in the
+      // order the masks appear) when there is more than one.
+      const perBlank = blankCount === 1 && !Array.isArray(rawPredictions[0])
+        ? [rawPredictions]
+        : rawPredictions;
+      for (const b of blankIdxs) {
+        const predictions = perBlank[b] || [];
+        addLLMRow(b, blankCount, chunks, predictions);
+      }
       hideSpinner();
-      addLLMRow(predictions);
       ranLabels.push('DistilBERT');
     } catch (err) {
       console.error(err);
@@ -308,7 +415,7 @@ async function run() {
 
   hideSpinner();
   els.status.textContent = ranLabels.length
-    ? `Done — ran ${ranLabels.join(', ')}.`
+    ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}.`
     : `Nothing ran — check the browser console for errors.`;
   els.runBtn.disabled = false;
 }

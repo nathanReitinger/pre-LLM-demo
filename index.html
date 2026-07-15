@@ -1,126 +1,109 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <meta http-equiv="Content-Style-Type" content="text/css">
-  <title></title>
-  <meta name="Generator" content="Cocoa HTML Writer">
-  <meta name="CocoaVersion" content="2685.6">
-  <style type="text/css">
-    p.p1 {margin: 0.0px 0.0px 12.0px 0.0px; font: 12.0px Times; -webkit-text-stroke: #000000}
-    p.p2 {margin: 0.0px 0.0px 12.0px 0.0px; font: 12.0px Times; -webkit-text-stroke: #000000; min-height: 14.0px}
-    span.s1 {font-kerning: none}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pre-LLM Next-Word Prediction</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<p class="p1"><span class="s1">&lt;!DOCTYPE html&gt;</span></p>
-<p class="p1"><span class="s1">&lt;html lang="en"&gt;</span></p>
-<p class="p1"><span class="s1">&lt;head&gt;</span></p>
-<p class="p1"><span class="s1">&lt;meta charset="UTF-8"&gt;</span></p>
-<p class="p1"><span class="s1">&lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;</span></p>
-<p class="p1"><span class="s1">&lt;title&gt;Pre-LLM Next-Word Prediction&lt;/title&gt;</span></p>
-<p class="p1"><span class="s1">&lt;link rel="preconnect" href="https://fonts.googleapis.com"&gt;</span></p>
-<p class="p1"><span class="s1">&lt;link rel="preconnect" href="https://fonts.gstatic.com" crossorigin&gt;</span></p>
-<p class="p1"><span class="s1">&lt;link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&amp;display=swap" rel="stylesheet"&gt;</span></p>
-<p class="p1"><span class="s1">&lt;link rel="stylesheet" href="style.css"&gt;</span></p>
-<p class="p1"><span class="s1">&lt;/head&gt;</span></p>
-<p class="p1"><span class="s1">&lt;body&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">&lt;header class="site-head"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;div class="wrap"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;p class="eyebrow"&gt;a small language-model lab&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;h1&gt;Pre-LLM Next-Word Prediction&lt;/h1&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;p class="dek"&gt;Old n-gram models guess the next word from raw frequency alone. Write a passage below</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>with one or more blanks marked &lt;code&gt;&amp;lt;blank&amp;gt;&lt;/code&gt;, and watch a thousand guesses come out of the</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>machine for each hole — then see how a real language model handles the same holes.&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1">&lt;/header&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">&lt;main class="wrap"&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;section class="panel" id="input-panel"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;h2&gt;Set up the passage&lt;/h2&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;label class="field-label" for="prompt"&gt;Prompt &lt;span class="hint"&gt;— write the story, then mark each word to guess with &lt;code&gt;&amp;lt;blank&amp;gt;&lt;/code&gt;. You can use more than one &lt;code&gt;&amp;lt;blank&amp;gt;&lt;/code&gt; in the same passage.&lt;/span&gt;&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;textarea id="prompt" rows="9"&gt;Maya and Mia had been inseparable since kindergarten, but everyone in town knew they were opposites. Mia was the one who volunteered for every talent show and student council race, while Maya spent most assemblies hiding behind her sister, mortified at the thought of a microphone. So when the graduation committee announced that only one twin would deliver the commencement speech, the whole gym assumed it would be the outgoing one. But when the lights came up and a name was called, it was &lt;blank&gt; who walked, trembling, to the podium.&lt;/textarea&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div class="field-group wide"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;p class="hint tiny"&gt;Every model below — &lt;b&gt;n-grams (unigram/bigram/trigram/4-gram), embeddings, and</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>RNN&lt;/b&gt; — trains its background signal on a bundled real-text sample (~1GB of Wikipedia text, split</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>into chunk files in &lt;code&gt;static-corpus/&lt;/code&gt; and shipped with this site — no external API call, no</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>live network dependency). Your story is trained alongside it and repeated so a well-attested</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>story-specific pattern can still win out over the generic background.&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div class="field-group"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;label class="field-label" for="runs"&gt;Samples per model&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;input type="number" id="runs" value="1000" min="10" max="5000" step="10"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;h2&gt;Pick models to compare&lt;/h2&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div class="model-picker" id="model-picker"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;label class="chip"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input type="checkbox" value="unigram" checked&gt;&lt;span&gt;Unigram&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span class="info-dot" tabindex="0" data-tip="Guesses from raw word frequency — no context. Blends your story's own word counts with frequency from the bundled real-text background corpus."&gt;i&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;label class="chip"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input type="checkbox" value="bigram" checked&gt;&lt;span&gt;Bigram&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span class="info-dot" tabindex="0" data-tip="Looks at the single word right before the blank. Blends whatever your story itself has shown following that word with the same 1-word context in the bundled background corpus."&gt;i&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;label class="chip"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input type="checkbox" value="trigram" checked&gt;&lt;span&gt;Trigram&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span class="info-dot" tabindex="0" data-tip="Looks at the two words before the blank. Blends your story's own evidence with that exact 2-word context in the bundled background corpus — sharper than bigram when that pair is real, common English."&gt;i&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;label class="chip"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input type="checkbox" value="fourgram"&gt;&lt;span&gt;4-gram&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span class="info-dot" tabindex="0" data-tip="Looks at the three words before the blank. Blends your story's own evidence with that exact 3-word context in the bundled background corpus; backs off toward shorter contexts (Kneser-Ney) if that exact run of words has never occurred."&gt;i&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;label class="chip"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input type="checkbox" value="embeddings" checked&gt;&lt;span&gt;Embeddings (PPMI + SVD)&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span class="info-dot" tabindex="0" data-tip="Turns each word into a vector based on which words tend to sit near it, then averages the vectors on both sides of the blank and finds the closest word to that average."&gt;i&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;label class="chip"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input type="checkbox" value="rnn"&gt;&lt;span&gt;RNN (live-trained)&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span class="info-dot" tabindex="0" data-tip="A tiny recurrent network trained on the fly. It reads left-to-right, updating one running 'memory' vector word by word, instead of just counting fixed windows like the n-grams."&gt;i&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;label class="chip llm-chip"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input type="checkbox" value="llm" id="llm-toggle"&gt;&lt;span&gt;Small LLM (in-browser, DistilBERT)&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span class="info-dot" tabindex="0" data-tip="A real pretrained transformer. It reads the whole passage — both before and after the blank — at once using attention, instead of hand-built statistics."&gt;i&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;p class="hint tiny"&gt;Six stages of the same field, each on the same blank: &lt;b&gt;unigram → bigram → trigram/4-gram&lt;/b&gt; (frequency tables,</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>1980s–2000s, trained here on your story blended with a bundled real-text background corpus) → &lt;b&gt;embeddings&lt;/b&gt; (words as</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>vectors from co-occurrence statistics, the word2vec/GloVe-era idea, 2003–2013) →</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;b&gt;RNN&lt;/b&gt; (a running hidden state instead of a fixed window, Mikolov 2010) → &lt;b&gt;LLM&lt;/b&gt; (a real pretrained transformer using</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>full bidirectional context, 2018–present).&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;p class="hint tiny" id="llm-note"&gt;The LLM option downloads a ~65&amp;nbsp;MB model the first time (cached after that) and runs it fully in your browser — no server, no API key.&lt;/p&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;button id="run-btn" class="run-btn"&gt;Run experiment&lt;/button&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;p class="status" id="status" aria-live="polite"&gt;&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;/section&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;section id="results"&gt;&lt;/section&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">&lt;/main&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">&lt;footer class="site-foot"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;div class="wrap"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;p&gt;All six models — &lt;b&gt;unigram, bigram, trigram, 4-gram, embeddings,&lt;/b&gt; and &lt;b&gt;RNN&lt;/b&gt; — train their</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>background signal the same way: on a real text sample bundled directly with this site —</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;a href="https://dumps.wikimedia.org/" target="_blank" rel="noopener"&gt;Wikipedia&lt;/a&gt; text, split into</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>small chunk files under &lt;code&gt;static-corpus/&lt;/code&gt; so no single file approaches GitHub's size limits,</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>and no third-party API call is needed at runtime. Your own story is trained alongside it (repeated</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>a few times so it isn't statistically swamped), so a well-attested story-specific pattern can still</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>win out over the generic background.&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1">&lt;/footer&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">&lt;script src="corpus.js"&gt;&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1">&lt;script src="static-corpus.js"&gt;&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1">&lt;script src="ngram.js"&gt;&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1">&lt;script src="embeddings.js"&gt;&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1">&lt;script src="rnn.js"&gt;&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1">&lt;script type="module" src="app.js"&gt;&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1">&lt;/body&gt;</span></p>
-<p class="p1"><span class="s1">&lt;/html&gt;</span></p>
+
+<header class="site-head">
+  <div class="wrap">
+    <p class="eyebrow">a small language-model lab</p>
+    <h1>Pre-LLM Next-Word Prediction</h1>
+    <p class="dek">Old n-gram models guess the next word from raw frequency alone. Write a passage below
+    with one or more blanks marked <code>&lt;blank&gt;</code>, and watch a thousand guesses come out of the
+    machine for each hole — then see how a real language model handles the same holes.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel" id="input-panel">
+    <h2>Set up the passage</h2>
+    <label class="field-label" for="prompt">Prompt <span class="hint">— write the story, then mark each word to guess with <code>&lt;blank&gt;</code>. You can use more than one <code>&lt;blank&gt;</code> in the same passage.</span></label>
+    <textarea id="prompt" rows="9">Maya and Mia had been inseparable since kindergarten, but everyone in town knew they were opposites. Mia was the one who volunteered for every talent show and student council race, while Maya spent most assemblies hiding behind her sister, mortified at the thought of a microphone. So when the graduation committee announced that only one twin would deliver the commencement speech, the whole gym assumed it would be the outgoing one. But when the lights came up and a name was called, it was <blank> who walked, trembling, to the podium.</textarea>
+
+    <div class="field-group wide">
+    <p class="hint tiny">Every model below — <b>n-grams (unigram/bigram/trigram/4-gram), embeddings, and
+    RNN</b> — trains its background signal on a bundled real-text sample (~1GB of Wikipedia text, split
+    into chunk files in <code>static-corpus/</code> and shipped with this site — no external API call, no
+    live network dependency). Your story is trained alongside it and repeated so a well-attested
+    story-specific pattern can still win out over the generic background.</p>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="runs">Samples per model</label>
+      <input type="number" id="runs" value="1000" min="10" max="5000" step="10">
+    </div>
+
+    <h2>Pick models to compare</h2>
+    <div class="model-picker" id="model-picker">
+      <label class="chip">
+        <input type="checkbox" value="unigram" checked><span>Unigram</span>
+        <span class="info-dot" tabindex="0" data-tip="Guesses from raw word frequency — no context. Blends your story's own word counts with frequency from the bundled real-text background corpus.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="bigram" checked><span>Bigram</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks at the single word right before the blank. Blends whatever your story itself has shown following that word with the same 1-word context in the bundled background corpus.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="trigram" checked><span>Trigram</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks at the two words before the blank. Blends your story's own evidence with that exact 2-word context in the bundled background corpus — sharper than bigram when that pair is real, common English.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="fourgram"><span>4-gram</span>
+        <span class="info-dot" tabindex="0" data-tip="Looks at the three words before the blank. Blends your story's own evidence with that exact 3-word context in the bundled background corpus; backs off toward shorter contexts (Kneser-Ney) if that exact run of words has never occurred.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="embeddings" checked><span>Embeddings (PPMI + SVD)</span>
+        <span class="info-dot" tabindex="0" data-tip="Turns each word into a vector based on which words tend to sit near it, then averages the vectors on both sides of the blank and finds the closest word to that average.">i</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" value="rnn"><span>RNN (live-trained)</span>
+        <span class="info-dot" tabindex="0" data-tip="A tiny recurrent network trained on the fly. It reads left-to-right, updating one running 'memory' vector word by word, instead of just counting fixed windows like the n-grams.">i</span>
+      </label>
+      <label class="chip llm-chip">
+        <input type="checkbox" value="llm" id="llm-toggle"><span>Small LLM (in-browser, DistilBERT)</span>
+        <span class="info-dot" tabindex="0" data-tip="A real pretrained transformer. It reads the whole passage — both before and after the blank — at once using attention, instead of hand-built statistics.">i</span>
+      </label>
+    </div>
+    <p class="hint tiny">Six stages of the same field, each on the same blank: <b>unigram → bigram → trigram/4-gram</b> (frequency tables,
+    1980s–2000s, trained here on your story blended with a bundled real-text background corpus) → <b>embeddings</b> (words as
+    vectors from co-occurrence statistics, the word2vec/GloVe-era idea, 2003–2013) →
+    <b>RNN</b> (a running hidden state instead of a fixed window, Mikolov 2010) → <b>LLM</b> (a real pretrained transformer using
+    full bidirectional context, 2018–present).</p>
+    <p class="hint tiny" id="llm-note">The LLM option downloads a ~65&nbsp;MB model the first time (cached after that) and runs it fully in your browser — no server, no API key.</p>
+
+    <button id="run-btn" class="run-btn">Run experiment</button>
+    <p class="status" id="status" aria-live="polite"></p>
+  </section>
+
+  <section id="results"></section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <p>All six models — <b>unigram, bigram, trigram, 4-gram, embeddings,</b> and <b>RNN</b> — train their
+    background signal the same way: on a real text sample bundled directly with this site —
+    <a href="https://dumps.wikimedia.org/" target="_blank" rel="noopener">Wikipedia</a> text, split into
+    small chunk files under <code>static-corpus/</code> so no single file approaches GitHub's size limits,
+    and no third-party API call is needed at runtime. Your own story is trained alongside it (repeated
+    a few times so it isn't statistically swamped), so a well-attested story-specific pattern can still
+    win out over the generic background.</p>
+  </div>
+</footer>
+
+<script src="corpus.js"></script>
+<script src="static-corpus.js"></script>
+<script src="ngram.js"></script>
+<script src="embeddings.js"></script>
+<script src="rnn.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>

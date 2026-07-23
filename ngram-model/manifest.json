@@ -1,0 +1,35 @@
+{
+  "orders": [
+    2,
+    3,
+    4
+  ],
+  "vocabSize": 40000,
+  "numShards": {
+    "2": 32,
+    "3": 128,
+    "4": 256
+  },
+  "discounts": {
+    "2": 0.42726113984410236,
+    "3": 0.442903144744761,
+    "4": 0.43856433706297016
+  },
+  "topK": {
+    "2": 50,
+    "3": 40,
+    "4": 30
+  },
+  "minCount": {
+    "2": 2,
+    "3": 2,
+    "4": 2
+  },
+  "sourceChunks": 1,
+  "chunksRead": 507,
+  "totalTokens": 1710044658,
+  "totalSentences": 100000000,
+  "maxSentences": 100000000,
+  "stoppedEarly": true,
+  "generatedAt": "2026-07-23T18:52:36Z"
+}

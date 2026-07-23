@@ -47,7 +47,20 @@ async function getChunkList() {
 // sentences exactly the way the built-in BACKGROUND_CORPUS text is used
 // elsewhere (see embeddings.js / rnn.js).
 async function fetchStaticCorpusText(opts = {}) {
-  const maxChars = opts.maxChars || 400000;
+  // NOTE: res.text() below reads the ENTIRE chunk file over the network
+  // regardless of maxChars — a chunk is ~90MB (see static-corpus/, ~1GB
+  // across 11 files), so that bandwidth cost is paid either way; maxChars
+  // only controls how much of the already-downloaded text is actually used
+  // for training. That said, n-gram training cost (esp. the 4-gram order)
+  // scales with how many DISTINCT n-grams the text contains, not just its
+  // length, so this can't just be cranked arbitrarily high — benchmarked
+  // against a realistic ~20k-word-vocabulary sample, 3,000,000 chars made
+  // 4-gram training alone take ~18s (unacceptable to block the UI on);
+  // 750,000 keeps all four n-gram orders combined under ~5s in the same
+  // worst-case test while still giving n-grams roughly 2x the background
+  // text they had before, well past what embeddings (950-word vocab cap)
+  // or the RNN (5,000-token training budget) can even make use of.
+  const maxChars = opts.maxChars || 750000;
 
   const chunks = await getChunkList();
   if (!chunks.length) throw new Error('no static corpus chunks configured');

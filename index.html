@@ -15,9 +15,10 @@
   <div class="wrap">
     <p class="eyebrow">a small language-model lab</p>
     <h1>Pre-LLM Next-Word Prediction</h1>
-    <p class="dek">Old n-gram models guess the next word from raw frequency alone. Write a passage below
-    with one or more blanks marked <code>&lt;blank&gt;</code>, and watch a thousand guesses come out of the
-    machine for each hole — then see how a real language model handles the same holes.</p>
+    <p class="dek">Old n-gram models guess the next word from raw frequency alone, which is very often wrong. Write a passage below
+    with one or more blanks marked <code>&lt;blank&gt;</code>to see how the holes are filled (i.e., predicted) with various models. </p>
+    <br/>
+    <p class="dek">The final model<code>&lt;BERT&gt;</code>is small, but shows how far LLMs have come.</p>
   </div>
 </header>
 
@@ -29,11 +30,14 @@
     <textarea id="prompt" rows="9">Maya and Mia had been inseparable since kindergarten, but everyone in town knew they were opposites. Mia was the one who volunteered for every talent show and student council race, while Maya spent most assemblies hiding behind her sister, mortified at the thought of a microphone. So when the graduation committee announced that only one twin would deliver the commencement speech, the whole gym assumed it would be the outgoing one. But when the lights came up and a name was called, it was <blank> who walked, trembling, to the podium.</textarea>
 
     <div class="field-group wide">
-    <p class="hint tiny">Every model below — <b>n-grams (unigram/bigram/trigram/4-gram), embeddings, and
-    RNN</b> — trains its background signal on a bundled real-text sample (~1GB of Wikipedia text, split
-    into chunk files in <code>static-corpus/</code> and shipped with this site — no external API call, no
-    live network dependency). Your story is trained alongside it and repeated so a well-attested
-    story-specific pattern can still win out over the generic background.</p>
+    <p class="hint tiny">The n-gram models (<b>unigram/bigram/trigram/4-gram</b>) use a pretrained model built
+    offline from a large corpus (<code>ngram-model/</code>, produced by <code>train.py</code> — see the
+    README) if it's present in this deployment, blended with your own story. If <code>ngram-model/</code>
+    hasn't been generated yet, they fall back to training live in your browser, same as
+    <b>embeddings</b> and <b>RNN</b> always do, on a bundled real-text sample (~1GB of Wikipedia text,
+    split into chunk files in <code>static-corpus/</code> and shipped with this site — no external API
+    call, no live network dependency). Your story is trained alongside it and repeated so a
+    well-attested story-specific pattern can still win out over the generic background.</p>
     </div>
 
     <div class="field-group">
@@ -89,8 +93,10 @@
 
 <footer class="site-foot">
   <div class="wrap">
-    <p>All six models — <b>unigram, bigram, trigram, 4-gram, embeddings,</b> and <b>RNN</b> — train their
-    background signal the same way: on a real text sample bundled directly with this site —
+    <p><b>N-grams (unigram, bigram, trigram, 4-gram)</b> use a pretrained model built offline from a
+    large corpus (<code>ngram-model/</code>, see <code>train.py</code>) when it's present, blended with
+    your own story; otherwise, and always for <b>embeddings</b> and <b>RNN</b>, models train live in your
+    browser on a real text sample bundled directly with this site —
     <a href="https://dumps.wikimedia.org/" target="_blank" rel="noopener">Wikipedia</a> text, split into
     small chunk files under <code>static-corpus/</code> so no single file approaches GitHub's size limits,
     and no third-party API call is needed at runtime. Your own story is trained alongside it (repeated
@@ -102,6 +108,7 @@
 <script src="corpus.js"></script>
 <script src="static-corpus.js"></script>
 <script src="ngram.js"></script>
+<script src="static-ngram-model.js"></script>
 <script src="embeddings.js"></script>
 <script src="rnn.js"></script>
 <script type="module" src="app.js"></script>

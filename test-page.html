@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>test</title><base href="/"></head>
+<body>
+<textarea id="prompt" rows="9"></textarea>
+<input type="number" id="runs" value="1000">
+<button id="run-btn">Run experiment</button>
+<p id="status"></p>
+<div id="model-picker">
+  <label class="chip"><input type="checkbox" value="unigram"></label>
+  <label class="chip"><input type="checkbox" value="bigram"></label>
+  <label class="chip"><input type="checkbox" value="trigram"></label>
+  <label class="chip"><input type="checkbox" value="fourgram"></label>
+  <label class="chip"><input type="checkbox" value="embeddings"></label>
+  <label class="chip"><input type="checkbox" value="rnn"></label>
+  <label class="chip llm-chip"><input type="checkbox" value="llm" id="llm-toggle"></label>
+</div>
+<div id="results"></div>
+
+<script src="/corpus.js"></script>
+<script src="/static-corpus.js"></script>
+<script src="/ngram.js"></script>
+<script src="/static-ngram-model.js"></script>
+<script src="/embeddings.js"></script>
+<script src="/rnn.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

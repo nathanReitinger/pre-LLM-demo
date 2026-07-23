@@ -38,6 +38,20 @@ const STORY_WEIGHT = 3;
 // a live infini-gram query.
 const NGRAM_BACKGROUND_WEIGHT = 1;
 
+// If ngram-model/ (built offline by train.py, see README) is present, the
+// n-gram rows use it instead of live-training on a small in-browser slice
+// of the corpus — real counts from the whole trained corpus, fetched as
+// small per-context shard files, so predictions are good immediately
+// instead of needing the story repeated a bunch of times to have any
+// signal at all. The user's own story still matters: its distribution is
+// blended in on top at STATIC_STORY_BLEND (when the story itself has seen
+// this exact context) or STATIC_STORY_BLEND_WEAK (when it hasn't, so the
+// pretrained model should dominate). If ngram-model/ isn't there — e.g. it
+// hasn't been generated yet — this falls all the way back to the original
+// live-in-browser training against static-corpus.js, unchanged.
+const STATIC_STORY_BLEND = 0.7;
+const STATIC_STORY_BLEND_WEAK = 0.15;
+
 const MODEL_LABELS = {
   unigram: 'Unigram',
   bigram: 'Bigram',
@@ -96,6 +110,48 @@ function rightContextTokens(chunkAfter) {
 function ngramPredict(model, order, chunks, blankIdx, runs) {
   const ctxTokens = leftContextTokens(chunks[blankIdx]);
   const freqPairs = runSamplingExperiment(model, ctxTokens, runs);
+  return { freqPairs };
+}
+
+// Same job as ngramPredict, but sourced from the pretrained static model
+// (see STATIC_STORY_BLEND above) blended with a story-only live model.
+// `storyModel` is trained on the user's story ALONE (no background text —
+// the static model already supplies that role) so its own distribution is
+// a pure signal of "what has this specific story shown so far," used both
+// as the thing to blend in and as the source of "has the story actually
+// seen this context" evidence for choosing the blend weight.
+async function ngramPredictStatic(staticModel, storyModel, order, chunks, blankIdx, runs) {
+  const ctxTokens = leftContextTokens(chunks[blankIdx]);
+  const staticDist = await staticModel.distribution(ctxTokens);
+  const storyDist = storyModel.distribution(ctxTokens);
+
+  const storyOrder = Math.min(order, ctxTokens.length + 1);
+  let storyHasEvidence = false;
+  if (storyOrder > 1) {
+    const ctx = ctxTokens.slice(ctxTokens.length - (storyOrder - 1));
+    const ctxKey = storyModel._key(ctx);
+    storyHasEvidence = (storyModel.contextTotal[storyOrder].get(ctxKey) || 0) > 0;
+  }
+  const alpha = storyHasEvidence ? STATIC_STORY_BLEND : STATIC_STORY_BLEND_WEAK;
+
+  // Union the two vocabularies: start from the (large) static distribution,
+  // then mix in the (small, story-only) distribution on top, renormalizing
+  // afterward since neither side alone sums to 1 post-blend.
+  const combined = new Map();
+  for (const [w, p] of staticDist) combined.set(w, (1 - alpha) * p);
+  for (const [w, p] of storyDist) combined.set(w, (combined.get(w) || 0) + alpha * p);
+
+  let total = 0;
+  for (const p of combined.values()) total += p;
+  const pairs = [...combined.entries()].map(([w, p]) => [w, p / (total || 1)]);
+  pairs.sort((a, b) => b[1] - a[1]);
+
+  // Synthesize integer "sample counts" out of the exact blended
+  // probabilities (top slice only — the renderer only ever shows 8) so
+  // this plugs into the existing count/totalRuns percentage renderer
+  // unchanged, without actually drawing `runs` random samples (unnecessary
+  // here since the full distribution is already known exactly).
+  const freqPairs = pairs.slice(0, 32).map(([w, p]) => [w, Math.max(0, Math.round(p * runs))]);
   return { freqPairs };
 }
 
@@ -217,13 +273,13 @@ function predCell(word, pct) {
   return td;
 }
 
-function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns) {
+function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns, tagOverride) {
   const tbody = ensureBlankSection(blankIdx, blankCount, chunks);
   const top = freqPairs.slice(0, 8);
   const tr = document.createElement('tr');
   const modelTd = document.createElement('td');
   modelTd.className = 'model-cell';
-  const tag = `n-gram · story blended with a bundled real-text background corpus · ${totalRuns} samples, left-context only`;
+  const tag = tagOverride || `n-gram · story blended with a bundled real-text background corpus · ${totalRuns} samples, left-context only`;
   modelTd.innerHTML = `${label}<span class="model-tag">${tag}</span>`;
   tr.appendChild(modelTd);
   for (const [word, count] of top) {
@@ -343,9 +399,30 @@ async function run() {
   // (n-grams, embeddings, RNN) now shares this same real-text sample —
   // this replaced the old design where the n-gram models instead queried
   // the (no longer reliable) infini-gram API live per prediction.
+  const ngramModels = models.filter(m => m in MODEL_ORDER);
+
+  // Resolve ONCE whether the pretrained static n-gram model (ngram-model/,
+  // built offline by train.py — see README) is present. When it is, the
+  // n-gram rows query it directly instead of live-training on a random
+  // static-corpus.js slice, so they no longer need `backgroundText` at
+  // all; embeddings/RNN still do, since they need actual sentences to
+  // train on, not a count table.
+  let useStaticNgrams = false;
+  if (ngramModels.length) {
+    updateSpinnerMessage('Checking for a pretrained n-gram model…');
+    await new Promise(r => setTimeout(r, 0));
+    try {
+      useStaticNgrams = await staticModelAvailable();
+    } catch (err) {
+      console.error(err);
+      useStaticNgrams = false;
+    }
+  }
+
   let backgroundText = (typeof BACKGROUND_CORPUS !== 'undefined') ? BACKGROUND_CORPUS : '';
   let backgroundLabel = 'built-in';
-  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn' || m in MODEL_ORDER);
+  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn') ||
+    (ngramModels.length > 0 && !useStaticNgrams);
   if (needsBackground) {
     updateSpinnerMessage('Loading a real text sample from the bundled corpus…');
     await new Promise(r => setTimeout(r, 0));
@@ -360,25 +437,57 @@ async function run() {
 
   const blankIdxs = Array.from({ length: blankCount }, (_, i) => i);
 
-  const ngramModels = models.filter(m => m in MODEL_ORDER);
   for (const key of ngramModels) {
-    updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story + bundled corpus…`);
-    await new Promise(r => setTimeout(r, 0)); // let status paint
-    // Background text now comes from the same bundled static-corpus sample
-    // every other model uses, blended in via buildModel's own
-    // backgroundWeight mixing (see ngram.js) rather than a per-prediction
-    // live query.
-    const model = buildModel(MODEL_ORDER[key], storyOnly, backgroundText, NGRAM_BACKGROUND_WEIGHT, STORY_WEIGHT);
+    const order = MODEL_ORDER[key];
 
-    for (const b of blankIdxs) {
-      updateSpinnerMessage(
-        blankCount > 1
-          ? `Sampling the ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
-          : `Sampling the ${MODEL_LABELS[key]}…`
-      );
+    if (useStaticNgrams) {
+      updateSpinnerMessage(`Loading the pretrained ${MODEL_LABELS[key]} model…`);
       await new Promise(r => setTimeout(r, 0));
-      const { freqPairs } = ngramPredict(model, MODEL_ORDER[key], chunks, b, runs);
-      addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs);
+      try {
+        const staticModel = await loadStaticNgramModel(order);
+        // Story-only model (no background text — the pretrained model
+        // already supplies that role): purely a signal of what THIS story
+        // has shown so far, blended on top of the pretrained distribution.
+        const storyModel = buildModel(order, storyOnly, '', 0, STORY_WEIGHT);
+        const tag = `n-gram · pretrained on the full offline-trained corpus, blended with your story · ${runs} samples, left-context only`;
+
+        for (const b of blankIdxs) {
+          updateSpinnerMessage(
+            blankCount > 1
+              ? `Querying the pretrained ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
+              : `Querying the pretrained ${MODEL_LABELS[key]}…`
+          );
+          await new Promise(r => setTimeout(r, 0));
+          const { freqPairs } = await ngramPredictStatic(staticModel, storyModel, order, chunks, b, runs);
+          addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs, tag);
+        }
+      } catch (err) {
+        console.error(err);
+        addErrorNote(`Couldn't query the pretrained ${MODEL_LABELS[key]} model (${err.message || 'error'}) — falling back to live training for this one.`);
+        const model = buildModel(order, storyOnly, backgroundText, NGRAM_BACKGROUND_WEIGHT, STORY_WEIGHT);
+        for (const b of blankIdxs) {
+          const { freqPairs } = ngramPredict(model, order, chunks, b, runs);
+          addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs);
+        }
+      }
+    } else {
+      updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story + bundled corpus…`);
+      await new Promise(r => setTimeout(r, 0)); // let status paint
+      // Background text comes from the bundled static-corpus sample every
+      // other live-trained model uses, blended in via buildModel's own
+      // backgroundWeight mixing (see ngram.js).
+      const model = buildModel(order, storyOnly, backgroundText, NGRAM_BACKGROUND_WEIGHT, STORY_WEIGHT);
+
+      for (const b of blankIdxs) {
+        updateSpinnerMessage(
+          blankCount > 1
+            ? `Sampling the ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
+            : `Sampling the ${MODEL_LABELS[key]}…`
+        );
+        await new Promise(r => setTimeout(r, 0));
+        const { freqPairs } = ngramPredict(model, order, chunks, b, runs);
+        addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs);
+      }
     }
 
     hideSpinner();
@@ -475,7 +584,10 @@ async function run() {
   }
 
   hideSpinner();
-  const corpusNote = needsBackground ? ` (background: ${backgroundLabel})` : '';
+  const notes = [];
+  if (needsBackground) notes.push(`background: ${backgroundLabel}`);
+  if (ngramModels.length) notes.push(useStaticNgrams ? 'n-grams: pretrained static model' : 'n-grams: live-trained');
+  const corpusNote = notes.length ? ` (${notes.join('; ')})` : '';
   els.status.textContent = ranLabels.length
     ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}${corpusNote}.`
     : `Nothing ran — check the browser console for errors.`;

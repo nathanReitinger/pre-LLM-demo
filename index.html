@@ -63,14 +63,6 @@
         <input type="checkbox" value="fourgram"><span>4-gram</span>
         <span class="info-dot" tabindex="0" data-tip="Looks at the three words before the blank. Blends your story's own evidence with that exact 3-word context in the bundled background corpus; backs off toward shorter contexts (Kneser-Ney) if that exact run of words has never occurred.">i</span>
       </label>
-      <label class="chip">
-        <input type="checkbox" value="embeddings" checked><span>Embeddings (PPMI + SVD)</span>
-        <span class="info-dot" tabindex="0" data-tip="Turns each word into a vector based on which words tend to sit near it, then averages the vectors on both sides of the blank and finds the closest word to that average.">i</span>
-      </label>
-      <label class="chip">
-        <input type="checkbox" value="rnn"><span>RNN (live-trained)</span>
-        <span class="info-dot" tabindex="0" data-tip="A tiny recurrent network trained on the fly. It reads left-to-right, updating one running 'memory' vector word by word, instead of just counting fixed windows like the n-grams.">i</span>
-      </label>
       <label class="chip llm-chip">
         <input type="checkbox" value="llm" id="llm-toggle"><span>Small LLM (in-browser, DistilBERT)</span>
         <span class="info-dot" tabindex="0" data-tip="A real pretrained transformer. It reads the whole passage — both before and after the blank — at once using attention, instead of hand-built statistics.">i</span>
@@ -105,12 +97,7 @@
   </div>
 </footer>
 
-<script src="corpus.js"></script>
-<script src="static-corpus.js"></script>
-<script src="ngram.js"></script>
 <script src="static-ngram-model.js"></script>
-<script src="embeddings.js"></script>
-<script src="rnn.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

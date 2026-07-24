@@ -21,13 +21,9 @@ const els = {
 
 // N-gram rows (unigram/bigram/trigram/4-gram) are pure lookups against the
 // pretrained static model in ngram-model/ (built offline by train.py) —
-// no story blending, no live in-browser training, no background-corpus
-// fallback of any kind. The story you type only affects which contexts
-// get queried (the left-context tokens before each blank); it never
-// contributes any counts of its own to the n-gram predictions.
-// STORY_WEIGHT below is used only by the embeddings/RNN models, which are
-// unrelated live-trained comparison models, not by the n-grams at all.
-const STORY_WEIGHT = 3;
+// no story blending, no live in-browser training, no background corpus.
+// The whole table for each queried order is preloaded once (see
+// preloadAllShards in static-ngram-model.js) — nothing is sampled.
 
 const MODEL_LABELS = {
   unigram: 'Unigram',
@@ -239,22 +235,7 @@ function addLLMRow(blankIdx, blankCount, chunks, predictions) {
   tbody.appendChild(tr);
 }
 
-// Shared renderer for any model that already produces [word, probability]
-// pairs (0-1 range) — used by the embeddings and RNN models.
-function addVectorRow(blankIdx, blankCount, chunks, label, tag, pairs) {
-  const tbody = ensureBlankSection(blankIdx, blankCount, chunks);
-  const top = pairs.slice(0, 8);
-  const tr = document.createElement('tr');
-  const modelTd = document.createElement('td');
-  modelTd.className = 'model-cell';
-  modelTd.innerHTML = `${label}<span class="model-tag">${tag}</span>`;
-  tr.appendChild(modelTd);
-  for (const [word, p] of top) {
-    tr.appendChild(predCell(word, (p * 100).toFixed(1)));
-  }
-  for (let i = top.length; i < 8; i++) tr.appendChild(document.createElement('td'));
-  tbody.appendChild(tr);
-}
+
 
 function addErrorNote(message) {
   const note = document.createElement('p');
@@ -323,8 +304,7 @@ async function run() {
   // for prediction is unaffected — that's computed straight from the
   // individual chunks below, never from storyOnly.
   const storyOnly = chunks.map(c => c.trim()).filter(Boolean).join('. ');
-  const stillToRun = () =>
-    models.includes('embeddings') || models.includes('rnn') || models.includes('llm');
+  const stillToRun = () => models.includes('llm');
 
   // Resolve the background text ONCE for the whole run: a real text sample
   // pulled from the bundled static-corpus/ chunk files (see
@@ -348,21 +328,6 @@ async function run() {
     const ok = await staticModelAvailable(); // no try/catch — must succeed or the run stops
     if (!ok) {
       throw new Error('ngram-model/ (pretrained static model) failed to load — refusing to silently fall back to live training.');
-    }
-  }
-
-  let backgroundText = (typeof BACKGROUND_CORPUS !== 'undefined') ? BACKGROUND_CORPUS : '';
-  let backgroundLabel = 'built-in';
-  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn');
-  if (needsBackground) {
-    updateSpinnerMessage('Loading a real text sample from the bundled corpus…');
-    await new Promise(r => setTimeout(r, 0));
-    try {
-      backgroundText = await fetchStaticCorpusText();
-      backgroundLabel = 'static corpus (bundled, real text)';
-    } catch (err) {
-      console.error(err);
-      addErrorNote(`Couldn't load the bundled static corpus (${err.message || 'error'}) — used the built-in corpus instead.`);
     }
   }
 
@@ -394,58 +359,6 @@ async function run() {
     }
   }
 
-  if (models.includes('embeddings')) {
-    showSpinner('Building word vectors from the story…');
-    await new Promise(r => setTimeout(r, 0));
-    try {
-      const emb = buildEmbeddings(storyOnly, backgroundText);
-      for (const b of blankIdxs) {
-        updateSpinnerMessage(
-          blankCount > 1
-            ? `Averaging context vectors for blank ${b + 1} of ${blankCount}…`
-            : 'Averaging context vectors and ranking neighbors…'
-        );
-        await new Promise(r => setTimeout(r, 0));
-        const leftTokens = leftContextTokens(chunks[b]);
-        const rightTokens = rightContextTokens(chunks[b + 1]);
-        const preds = embeddingPredict(emb, leftTokens, rightTokens, 8);
-        addVectorRow(b, blankCount, chunks, 'Embeddings', 'PPMI + SVD · vector similarity, left + right context', preds);
-      }
-      hideSpinner();
-      ranLabels.push('Embeddings');
-    } catch (err) {
-      console.error(err);
-      hideSpinner();
-      addErrorNote(`Couldn't build the embedding model (${err.message || 'error'}).`);
-    }
-    if (models.includes('rnn') || models.includes('llm')) showSpinner('Preparing next model…');
-  }
-
-  if (models.includes('rnn')) {
-    showSpinner('Training a tiny RNN on the story text…');
-    await new Promise(r => setTimeout(r, 0));
-    try {
-      const rnnModel = trainRNN(storyOnly, backgroundText);
-      for (const b of blankIdxs) {
-        updateSpinnerMessage(
-          blankCount > 1
-            ? `Running the RNN forward for blank ${b + 1} of ${blankCount}…`
-            : 'Running the RNN forward over the left context…'
-        );
-        await new Promise(r => setTimeout(r, 0));
-        const ctxTokens = leftContextTokens(chunks[b]);
-        const preds = rnnPredict(rnnModel, ctxTokens, 8);
-        addVectorRow(b, blankCount, chunks, 'RNN', 'live-trained · running hidden state, left context only', preds);
-      }
-      hideSpinner();
-      ranLabels.push('RNN');
-    } catch (err) {
-      console.error(err);
-      hideSpinner();
-      addErrorNote(`Couldn't train the RNN (${err.message || 'error'}).`);
-    }
-    if (models.includes('llm')) showSpinner('Preparing next model…');
-  }
 
   if (models.includes('llm')) {
     showSpinner('Loading DistilBERT…');
@@ -482,8 +395,7 @@ async function run() {
 
   hideSpinner();
   const notes = [];
-  if (needsBackground) notes.push(`background: ${backgroundLabel}`);
-  if (ngramModels.length) notes.push('n-grams: pretrained static model');
+  if (ngramModels.length) notes.push('n-grams: pretrained static model (full table, no sampling)');
   const corpusNote = notes.length ? ` (${notes.join('; ')})` : '';
   els.status.textContent = ranLabels.length
     ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}${corpusNote}.`

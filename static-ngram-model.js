@@ -222,13 +222,33 @@ async function staticRunSamplingExperiment(model, ctxTokens, runs = 1000) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1]);
 }
 
-// order: 1 (unigram) through 4. Unigram has no shards to fetch — it's
-// served straight out of vocab.json — so it uses the same class with a
-// trivial order-1 path (StaticNgramModel._pAt already handles order<=1).
+// Fetches EVERY shard file for one order, not just the shard a particular
+// query happens to hash into — the whole trained table for that order
+// ends up resident in shardCache after this returns. Called once per
+// order at model-load time so no query afterward ever triggers a network
+// fetch; every distribution() lookup is served from what's already in
+// memory.
+async function preloadAllShards(order, meta) {
+  const numShards = meta.manifest.numShards[String(order)];
+  if (!numShards) {
+    throw new Error(`ngram-model/manifest.json has no numShards entry for order ${order} — this order was never trained/deployed.`);
+  }
+  const loads = [];
+  for (let s = 0; s < numShards; s++) loads.push(loadShard(order, s));
+  await Promise.all(loads); // any missing/corrupt shard file throws here, loudly
+}
+
 async function loadStaticNgramModel(order) {
   const meta = await loadStaticModelMeta();
   if (order > 1 && !meta.manifest.orders.includes(order)) {
     throw new Error(`ngram-model/manifest.json has no order-${order} data (orders present: [${meta.manifest.orders}]).`);
+  }
+  // Preload the full table for this order AND every lower order it can
+  // back off into (distribution() interpolates down through 2..order), so
+  // the entire relevant model is loaded from disk once, up front, instead
+  // of one shard at a time as queries happen to need them.
+  for (let o = Math.min(order, 4); o >= 2; o--) {
+    if (meta.manifest.orders.includes(o)) await preloadAllShards(o, meta);
   }
   return new StaticNgramModel(order, meta);
 }

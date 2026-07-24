@@ -19,38 +19,15 @@ const els = {
   picker: document.getElementById('model-picker'),
 };
 
-// How many extra times the user's own story sentences are counted when
-// training every model — n-grams, embeddings, and RNN alike. All of them
-// now train on the SAME two ingredients: the user's story (repeated
-// STORY_WEIGHT times) plus a real text sample pulled from the bundled
-// static-corpus/ chunk files (see static-corpus.js). This replaces the old
-// design where the n-gram models instead blended their local counts with a
-// live query to the infini-gram API — that API stopped being reliable
-// enough to depend on, so everything now uses the same locally-trained,
-// no-network-required background source.
+// N-gram rows (unigram/bigram/trigram/4-gram) are pure lookups against the
+// pretrained static model in ngram-model/ (built offline by train.py) —
+// no story blending, no live in-browser training, no background-corpus
+// fallback of any kind. The story you type only affects which contexts
+// get queried (the left-context tokens before each blank); it never
+// contributes any counts of its own to the n-gram predictions.
+// STORY_WEIGHT below is used only by the embeddings/RNN models, which are
+// unrelated live-trained comparison models, not by the n-grams at all.
 const STORY_WEIGHT = 3;
-
-// How many times the background corpus's sentences are counted when
-// training the n-gram models, relative to one full pass. Kept modest (1x)
-// so a well-attested story-specific pattern (STORY_WEIGHT=3x) still tends
-// to win out, the same balance the old STORY_WEIGHT-vs-background design
-// struck, just with a bundled real corpus standing in for what used to be
-// a live infini-gram query.
-const NGRAM_BACKGROUND_WEIGHT = 1;
-
-// If ngram-model/ (built offline by train.py, see README) is present, the
-// n-gram rows use it instead of live-training on a small in-browser slice
-// of the corpus — real counts from the whole trained corpus, fetched as
-// small per-context shard files, so predictions are good immediately
-// instead of needing the story repeated a bunch of times to have any
-// signal at all. The user's own story still matters: its distribution is
-// blended in on top at STATIC_STORY_BLEND (when the story itself has seen
-// this exact context) or STATIC_STORY_BLEND_WEAK (when it hasn't, so the
-// pretrained model should dominate). If ngram-model/ isn't there — e.g. it
-// hasn't been generated yet — this falls all the way back to the original
-// live-in-browser training against static-corpus.js, unchanged.
-const STATIC_STORY_BLEND = 0.7;
-const STATIC_STORY_BLEND_WEAK = 0.15;
 
 const MODEL_LABELS = {
   unigram: 'Unigram',
@@ -99,68 +76,17 @@ function rightContextTokens(chunkAfter) {
   return sents.length ? sents[0] : [];
 }
 
-// Predicts one blank for one n-gram order. The model passed in was already
-// trained on BOTH the user's story (repeated STORY_WEIGHT times) and a real
-// background text sample from the bundled static corpus (see buildModel's
-// backgroundWeight param, used the same way in `run()` below) — so no
-// runtime blending step is needed here, unlike the old infini-gram-backed
-// version. This just samples from that already-blended local distribution.
-// Returns [word, sampleCount] pairs so it can feed the existing table
-// renderer unchanged.
-function ngramPredict(model, order, chunks, blankIdx, runs) {
+// Pure lookup against the pretrained static model — no blending with
+// anything the user typed, no live training, no background corpus.
+// Returns synthesized integer "sample counts" out of the model's exact
+// probabilities (top slice only — the renderer only ever shows 8) so this
+// plugs into the existing count/totalRuns percentage renderer unchanged,
+// without actually drawing `runs` random samples (unnecessary here since
+// the full distribution is already known exactly).
+async function ngramPredictStatic(staticModel, chunks, blankIdx, runs) {
   const ctxTokens = leftContextTokens(chunks[blankIdx]);
-  const freqPairs = runSamplingExperiment(model, ctxTokens, runs);
-  return { freqPairs };
-}
-
-// Same job as ngramPredict, but sourced from the pretrained static model
-// (see STATIC_STORY_BLEND above) blended with a story-only live model.
-// `storyModel` is trained on the user's story ALONE (no background text —
-// the static model already supplies that role) so its own distribution is
-// a pure signal of "what has this specific story shown so far," used both
-// as the thing to blend in and as the source of "has the story actually
-// seen this context" evidence for choosing the blend weight.
-async function ngramPredictStatic(staticModel, storyModel, order, chunks, blankIdx, runs) {
-  const ctxTokens = leftContextTokens(chunks[blankIdx]);
-  const staticDist = await staticModel.distribution(ctxTokens);
-  const storyDist = storyModel.distribution(ctxTokens);
-
-  const storyOrder = Math.min(order, ctxTokens.length + 1);
-    let storyContextCount = 0;
-    if (storyOrder > 1) {
-      const ctx = ctxTokens.slice(ctxTokens.length - (storyOrder - 1));
-      const ctxKey = storyModel._key(ctx);
-      storyContextCount = storyModel.contextTotal[storyOrder].get(ctxKey) || 0;
-    }
-    // Scale the blend by how many times the story has actually shown this
-    // context, not just whether it's ever appeared once. A context seen
-    // only once (STORY_WEIGHT repeats of one sentence counts as "once") is
-    // not meaningfully different from having no evidence at all — it
-    // shouldn't earn the same 0.7 weight as a context repeated many times
-    // across a long story. Ramp from STATIC_STORY_BLEND_WEAK up toward
-    // STATIC_STORY_BLEND as evidence accumulates, capping at a count of 6
-    // repeats (STORY_WEIGHT=3 x roughly 2 real occurrences) for full weight.
-    const evidenceRatio = Math.min(1, storyContextCount / 6);
-    const alpha = STATIC_STORY_BLEND_WEAK + (STATIC_STORY_BLEND - STATIC_STORY_BLEND_WEAK) * evidenceRatio;
-
-  // Union the two vocabularies: start from the (large) static distribution,
-  // then mix in the (small, story-only) distribution on top, renormalizing
-  // afterward since neither side alone sums to 1 post-blend.
-  const combined = new Map();
-  for (const [w, p] of staticDist) combined.set(w, (1 - alpha) * p);
-  for (const [w, p] of storyDist) combined.set(w, (combined.get(w) || 0) + alpha * p);
-
-  let total = 0;
-  for (const p of combined.values()) total += p;
-  const pairs = [...combined.entries()].map(([w, p]) => [w, p / (total || 1)]);
-  pairs.sort((a, b) => b[1] - a[1]);
-
-  // Synthesize integer "sample counts" out of the exact blended
-  // probabilities (top slice only — the renderer only ever shows 8) so
-  // this plugs into the existing count/totalRuns percentage renderer
-  // unchanged, without actually drawing `runs` random samples (unnecessary
-  // here since the full distribution is already known exactly).
-  const freqPairs = pairs.slice(0, 32).map(([w, p]) => [w, Math.max(0, Math.round(p * runs))]);
+  const dist = (await staticModel.distribution(ctxTokens)).sort((a, b) => b[1] - a[1]);
+  const freqPairs = dist.slice(0, 32).map(([w, p]) => [w, Math.max(0, Math.round(p * runs))]);
   return { freqPairs };
 }
 
@@ -448,8 +374,7 @@ async function run() {
     updateSpinnerMessage(`Loading the pretrained ${MODEL_LABELS[key]} model…`);
     await new Promise(r => setTimeout(r, 0));
     const staticModel = await loadStaticNgramModel(order); // no try/catch — must succeed
-    const storyModel = buildModel(order, storyOnly, '', 0, STORY_WEIGHT);
-    const tag = `n-gram · pretrained on the full offline-trained corpus, blended with your story · ${runs} samples, left-context only`;
+    const tag = `n-gram · pretrained static model only (ngram-model/) — no story blending, no live training · ${runs} samples, left-context only`;
 
     for (const b of blankIdxs) {
       updateSpinnerMessage(
@@ -458,7 +383,7 @@ async function run() {
           : `Querying the pretrained ${MODEL_LABELS[key]}…`
       );
       await new Promise(r => setTimeout(r, 0));
-      const { freqPairs } = await ngramPredictStatic(staticModel, storyModel, order, chunks, b, runs);
+      const { freqPairs } = await ngramPredictStatic(staticModel, chunks, b, runs);
       addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs, tag);
     }
 

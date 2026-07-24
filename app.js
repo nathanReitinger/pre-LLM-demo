@@ -407,15 +407,12 @@ async function run() {
   // static-corpus.js slice, so they no longer need `backgroundText` at
   // all; embeddings/RNN still do, since they need actual sentences to
   // train on, not a count table.
-  let useStaticNgrams = false;
   if (ngramModels.length) {
     updateSpinnerMessage('Checking for a pretrained n-gram model…');
     await new Promise(r => setTimeout(r, 0));
-    try {
-      useStaticNgrams = await staticModelAvailable();
-    } catch (err) {
-      console.error(err);
-      useStaticNgrams = false;
+    const ok = await staticModelAvailable(); // no try/catch — must succeed or the run stops
+    if (!ok) {
+      throw new Error('ngram-model/ (pretrained static model) failed to load — refusing to silently fall back to live training.');
     }
   }
 
@@ -440,54 +437,21 @@ async function run() {
   for (const key of ngramModels) {
     const order = MODEL_ORDER[key];
 
-    if (useStaticNgrams) {
-      updateSpinnerMessage(`Loading the pretrained ${MODEL_LABELS[key]} model…`);
+    updateSpinnerMessage(`Loading the pretrained ${MODEL_LABELS[key]} model…`);
+    await new Promise(r => setTimeout(r, 0));
+    const staticModel = await loadStaticNgramModel(order); // no try/catch — must succeed
+    const storyModel = buildModel(order, storyOnly, '', 0, STORY_WEIGHT);
+    const tag = `n-gram · pretrained on the full offline-trained corpus, blended with your story · ${runs} samples, left-context only`;
+
+    for (const b of blankIdxs) {
+      updateSpinnerMessage(
+        blankCount > 1
+          ? `Querying the pretrained ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
+          : `Querying the pretrained ${MODEL_LABELS[key]}…`
+      );
       await new Promise(r => setTimeout(r, 0));
-      try {
-        const staticModel = await loadStaticNgramModel(order);
-        // Story-only model (no background text — the pretrained model
-        // already supplies that role): purely a signal of what THIS story
-        // has shown so far, blended on top of the pretrained distribution.
-        const storyModel = buildModel(order, storyOnly, '', 0, STORY_WEIGHT);
-        const tag = `n-gram · pretrained on the full offline-trained corpus, blended with your story · ${runs} samples, left-context only`;
-
-        for (const b of blankIdxs) {
-          updateSpinnerMessage(
-            blankCount > 1
-              ? `Querying the pretrained ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
-              : `Querying the pretrained ${MODEL_LABELS[key]}…`
-          );
-          await new Promise(r => setTimeout(r, 0));
-          const { freqPairs } = await ngramPredictStatic(staticModel, storyModel, order, chunks, b, runs);
-          addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs, tag);
-        }
-      } catch (err) {
-        console.error(err);
-        addErrorNote(`Couldn't query the pretrained ${MODEL_LABELS[key]} model (${err.message || 'error'}) — falling back to live training for this one.`);
-        const model = buildModel(order, storyOnly, backgroundText, NGRAM_BACKGROUND_WEIGHT, STORY_WEIGHT);
-        for (const b of blankIdxs) {
-          const { freqPairs } = ngramPredict(model, order, chunks, b, runs);
-          addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs);
-        }
-      }
-    } else {
-      updateSpinnerMessage(`Training ${MODEL_LABELS[key]} on the story + bundled corpus…`);
-      await new Promise(r => setTimeout(r, 0)); // let status paint
-      // Background text comes from the bundled static-corpus sample every
-      // other live-trained model uses, blended in via buildModel's own
-      // backgroundWeight mixing (see ngram.js).
-      const model = buildModel(order, storyOnly, backgroundText, NGRAM_BACKGROUND_WEIGHT, STORY_WEIGHT);
-
-      for (const b of blankIdxs) {
-        updateSpinnerMessage(
-          blankCount > 1
-            ? `Sampling the ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
-            : `Sampling the ${MODEL_LABELS[key]}…`
-        );
-        await new Promise(r => setTimeout(r, 0));
-        const { freqPairs } = ngramPredict(model, order, chunks, b, runs);
-        addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs);
-      }
+      const { freqPairs } = await ngramPredictStatic(staticModel, storyModel, order, chunks, b, runs);
+      addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs, tag);
     }
 
     hideSpinner();

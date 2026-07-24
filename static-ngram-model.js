@@ -110,7 +110,9 @@ function loadShard(order, shardIdx) {
 // never seen at this order, or was seen but pruned below --min-count-*.
 async function getContextEntry(order, meta, ctxIds) {
   const numShards = meta.manifest.numShards[String(order)];
-  if (!numShards) return null;
+  if (!numShards) {
+    throw new Error(`ngram-model/manifest.json has no numShards entry for order ${order} — this order was never trained/deployed.`);
+  }
   const shardIdx = shardFor(ctxIds, numShards);
   const shard = await loadShard(order, shardIdx);
   return shard.get(ctxIds.join(',')) || null;
@@ -225,8 +227,10 @@ async function staticRunSamplingExperiment(model, ctxTokens, runs = 1000) {
 // trivial order-1 path (StaticNgramModel._pAt already handles order<=1).
 async function loadStaticNgramModel(order) {
   const meta = await loadStaticModelMeta();
-  const maxOrder = Math.max(...meta.manifest.orders, 1);
-  return new StaticNgramModel(Math.min(order, maxOrder), meta);
+  if (order > 1 && !meta.manifest.orders.includes(order)) {
+    throw new Error(`ngram-model/manifest.json has no order-${order} data (orders present: [${meta.manifest.orders}]).`);
+  }
+  return new StaticNgramModel(order, meta);
 }
 
 if (typeof module !== 'undefined') {

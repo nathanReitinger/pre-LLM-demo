@@ -418,8 +418,7 @@ async function run() {
 
   let backgroundText = (typeof BACKGROUND_CORPUS !== 'undefined') ? BACKGROUND_CORPUS : '';
   let backgroundLabel = 'built-in';
-  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn') ||
-    (ngramModels.length > 0 && !useStaticNgrams);
+  const needsBackground = models.some(m => m === 'embeddings' || m === 'rnn');
   if (needsBackground) {
     updateSpinnerMessage('Loading a real text sample from the bundled corpus…');
     await new Promise(r => setTimeout(r, 0));
@@ -550,7 +549,7 @@ async function run() {
   hideSpinner();
   const notes = [];
   if (needsBackground) notes.push(`background: ${backgroundLabel}`);
-  if (ngramModels.length) notes.push(useStaticNgrams ? 'n-grams: pretrained static model' : 'n-grams: live-trained');
+  if (ngramModels.length) notes.push('n-grams: pretrained static model');
   const corpusNote = notes.length ? ` (${notes.join('; ')})` : '';
   els.status.textContent = ranLabels.length
     ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}${corpusNote}.`

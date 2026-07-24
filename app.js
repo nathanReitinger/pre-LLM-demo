@@ -126,13 +126,22 @@ async function ngramPredictStatic(staticModel, storyModel, order, chunks, blankI
   const storyDist = storyModel.distribution(ctxTokens);
 
   const storyOrder = Math.min(order, ctxTokens.length + 1);
-  let storyHasEvidence = false;
-  if (storyOrder > 1) {
-    const ctx = ctxTokens.slice(ctxTokens.length - (storyOrder - 1));
-    const ctxKey = storyModel._key(ctx);
-    storyHasEvidence = (storyModel.contextTotal[storyOrder].get(ctxKey) || 0) > 0;
-  }
-  const alpha = storyHasEvidence ? STATIC_STORY_BLEND : STATIC_STORY_BLEND_WEAK;
+    let storyContextCount = 0;
+    if (storyOrder > 1) {
+      const ctx = ctxTokens.slice(ctxTokens.length - (storyOrder - 1));
+      const ctxKey = storyModel._key(ctx);
+      storyContextCount = storyModel.contextTotal[storyOrder].get(ctxKey) || 0;
+    }
+    // Scale the blend by how many times the story has actually shown this
+    // context, not just whether it's ever appeared once. A context seen
+    // only once (STORY_WEIGHT repeats of one sentence counts as "once") is
+    // not meaningfully different from having no evidence at all — it
+    // shouldn't earn the same 0.7 weight as a context repeated many times
+    // across a long story. Ramp from STATIC_STORY_BLEND_WEAK up toward
+    // STATIC_STORY_BLEND as evidence accumulates, capping at a count of 6
+    // repeats (STORY_WEIGHT=3 x roughly 2 real occurrences) for full weight.
+    const evidenceRatio = Math.min(1, storyContextCount / 6);
+    const alpha = STATIC_STORY_BLEND_WEAK + (STATIC_STORY_BLEND - STATIC_STORY_BLEND_WEAK) * evidenceRatio;
 
   // Union the two vocabularies: start from the (large) static distribution,
   // then mix in the (small, story-only) distribution on top, renormalizing

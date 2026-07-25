@@ -12,7 +12,7 @@
 // milliseconds — not an estimate, not a sample.
 // Docs: https://infini-gram.readthedocs.io/en/latest/api.html
 
-const INFINIGRAM_ENDPOINT = 'https://api.infini-gram.io/';
+const INFINIGRAM_ENDPOINT = 'cold-credit-665b.nathan-reitinger.workers.dev/';
 // Dolma v1.7: ~2.6 trillion tokens of web pages, books, Wikipedia, Reddit,
 // and code — a broad, general-purpose pretraining corpus, tokenized
 // server-side with the Llama-2 tokenizer. Built from (and linked to) the

@@ -1,24 +1,15 @@
 // infinigram.js
-// A REAL pretrained n-gram corpus, queried live, used two ways in this app:
-//   1. Next-word statistics for the unigram/bigram/trigram/4-gram rows
-//      (infiniNgramDistribution / infiniNgramWithBackoff).
-//   2. Real sampled documents to train the embeddings/RNN models' background
-//      signal (fetchInfiniGramCorpusText) — this replaced the old
-//      livecorpus.js, which pulled random rows from Hugging Face's
-//      datasets-server API against three specific datasets. That approach
-//      got increasingly unreliable: HF has moved several popular datasets
-//      (e.g. Salesforce/wikitext, the Wikitext-103 source) behind gating,
-//      so an anonymous browser fetch just fails with a generic network
-//      error ("Load failed") — no amount of retrying fixes that. Rather
-//      than juggle three flaky dataset-specific endpoints, everything now
-//      goes through this one already-proven-reliable API instead.
+// Queries the REAL, live infini-gram API for exact n-gram statistics —
+// this is the sole source of every unigram/bigram/trigram/4-gram
+// prediction in the app. No local corpus, no local training, no story
+// blending: every number here is an exact count from the real index.
 //
 // infini-gram (Liu, Min, Zettlemoyer, Choi & Hajishirzi, 2024, "Infini-gram:
 // Scaling Unbounded n-gram Language Models to a Trillion Tokens") is a free,
-// public, no-key API hosted by the University of Washington. It holds a
-// suffix-array index over real trillion-token pretraining corpora and can
-// return the *exact* next-token distribution following any prompt, or the
-// *actual real documents* that contain a given phrase, in milliseconds.
+// public, no-key API hosted by the Allen Institute/University of Washington.
+// It holds a suffix-array index over real trillion-token corpora and
+// returns the *exact* next-token distribution following any prompt, in
+// milliseconds — not an estimate, not a sample.
 // Docs: https://infini-gram.readthedocs.io/en/latest/api.html
 
 const INFINIGRAM_ENDPOINT = 'https://api.infini-gram.io/';
@@ -36,25 +27,18 @@ const INFINIGRAM_LABEL = 'Dolma-v1.7, 2.6T tokens (via infini-gram)';
 const WORD_START = '\u2581';
 
 // --- Request throttling + retry -------------------------------------------
-// Two distinct failure modes can hit this API, and the first version of
-// this retry logic only handled one of them:
-//   1. HTTP-level failures (429 rate limit, 5xx) — the response comes back,
-//      just with a bad status code.
+// Two distinct failure modes can hit this API:
+//   1. HTTP-level failures (429 rate limit, 5xx) — the response comes back
+//      with a bad status code.
 //   2. Network-level failures — fetch() itself throws (CORS block, DNS,
-//      timeout, connection reset: "Failed to fetch" / "Load failed"). These
-//      have NO status code at all. The earlier version only retried on
-//      (1) and treated (2) as instantly fatal — which is almost certainly
-//      what was actually happening here, since every single row failed
-//      immediately rather than failing intermittently the way a rate limit
-//      would.
-// This version retries EITHER kind of failure, budgets real wall-clock time
-// toward it (the user explicitly said up to ~30s per request is fine), and
+//      timeout, connection reset). These have NO status code at all.
+// This retries EITHER kind, budgets real wall-clock time toward it, and
 // logs the actual underlying error so it's possible to tell which failure
 // mode is occurring from the browser console.
 const MIN_GAP_MS = 300;          // minimum time between request starts
 const MAX_RETRIES = 6;           // retries after the first attempt
 const BASE_BACKOFF_MS = 700;     // doubled each retry, plus jitter
-const MAX_BACKOFF_MS = 6000;     // cap per-wait so 6 retries fits in the time budget
+const MAX_BACKOFF_MS = 6000;     // cap per-wait
 const TOTAL_TIME_BUDGET_MS = 28000; // give up around here regardless of retries left
 const FETCH_TIMEOUT_MS = 9000;   // a single attempt shouldn't hang forever
 
@@ -65,7 +49,7 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // Serializes all infini-gram calls through one queue so they never overlap,
 // and enforces a minimum gap between request starts even when several
-// callers enqueue at once.
+// callers enqueue at once (e.g. every blank of every selected order).
 function enqueue(task) {
   const run = async () => {
     const wait = Math.max(0, lastRequestAt + MIN_GAP_MS - Date.now());
@@ -101,8 +85,6 @@ async function rawInfiniQuery(payload) {
       FETCH_TIMEOUT_MS
     );
   } catch (networkErr) {
-    // fetch() itself threw: CORS block, DNS failure, connection reset, or
-    // our own timeout abort. No HTTP status exists for these.
     const err = new Error(`network error reaching infini-gram: ${networkErr.message || networkErr.name}`);
     err.networkFailure = true;
     throw err;
@@ -121,14 +103,12 @@ async function infiniQuery(payload) {
   return enqueue(async () => {
     const startedAt = Date.now();
     let attempt = 0;
-    let lastErr = null;
     for (;;) {
       try {
         const result = await rawInfiniQuery(payload);
         if (attempt > 0) console.info(`infini-gram request succeeded after ${attempt} retr${attempt === 1 ? 'y' : 'ies'}`);
         return result;
       } catch (err) {
-        lastErr = err;
         const retryable = err.networkFailure || err.status === 429 || (err.status >= 500 && err.status < 600);
         const elapsed = Date.now() - startedAt;
         console.warn(`infini-gram request failed (attempt ${attempt + 1}): ${err.message}`);
@@ -168,12 +148,12 @@ async function infiniNgramDistribution(contextText) {
   return { pairs, promptCnt: data.prompt_cnt || 0, approx: !!data.approx };
 }
 
-// Classic n-gram backoff, just aimed at the real corpus instead of a local
-// one: try the full (order-1)-word context first; if Dolma has never seen
-// that exact string (prompt_cnt/empty distribution), drop the oldest word
-// and try again, all the way down to the plain unigram distribution (which
-// is always non-empty). This is the same idea as the local Kneser-Ney
-// backoff elsewhere in this app, just applied to the background corpus.
+// Classic n-gram backoff, aimed at the real corpus: try the full
+// (order-1)-word context first; if Dolma has never seen that exact string
+// (empty distribution), drop the oldest word and try again, all the way
+// down to the plain unigram distribution (always non-empty). This is real
+// backoff over real data — when it happens, the caller is told exactly
+// which order was actually used, so it's never silent.
 async function infiniNgramWithBackoff(rawWords, order) {
   for (let n = order - 1; n >= 0; n--) {
     const contextText = n === 0 ? '' : rawWords.slice(rawWords.length - n).join(' ');
@@ -183,65 +163,9 @@ async function infiniNgramWithBackoff(rawWords, order) {
   return { pairs: [], usedOrder: 0, promptCnt: 0, approx: false, backedOff: true };
 }
 
-// A rotating set of short, extremely common phrases used purely as a way to
-// land on a huge, broad swath of the corpus — the actual phrase doesn't
-// matter (it's not a "topic"), we just need something virtually every
-// English document contains so `find` returns a big, representative range
-// of documents to sample from. A different seed each run (plus a random
-// rank within its match range) is what makes each fetch pull a different
-// slice of real text, the same role a random `offset` played in the old
-// Hugging Face row-based fetcher it replaced.
-const SAMPLE_SEEDS = [
-  'in the', 'on the', 'as well as', 'one of the', 'for example',
-  'at the same time', 'according to', 'in addition to', 'as a result of',
-  'more than', 'because of', 'in order to', 'at least', 'such as',
-];
-
-// Retrieves one real document's text by its rank within a shard's matching
-// range (see infini-gram's `find` -> `get_doc_by_rank` two-step document
-// search). `spans` in the response is the document already split into text
-// spans, so just concatenating them reconstructs the readable text.
-async function infiniFetchDocument(shard, rank) {
-  const data = await infiniQuery({ query_type: 'get_doc_by_rank', s: shard, rank });
-  if (!data.spans) return '';
-  return data.spans.map((span) => span[0]).join('');
-}
-
-// Pulls `numDocs` real, distinct documents from the live infini-gram index
-// and concatenates them into one text blob — ready to be tokenized into
-// training sentences exactly the way the old fetchLiveCorpusText output was
-// (see embeddings.js / rnn.js, which just want a blob of real prose).
-async function fetchInfiniGramCorpusText(opts = {}) {
-  const numDocs = opts.numDocs || 14;
-  const maxChars = opts.maxChars || 250000;
-
-  const seed = SAMPLE_SEEDS[Math.floor(Math.random() * SAMPLE_SEEDS.length)];
-  const findResult = await infiniQuery({ query_type: 'find', query: seed });
-  const shards = (findResult.segment_by_shard || [])
-    .map((range, shard) => ({ shard, lo: range[0], hi: range[1] }))
-    .filter((s) => s.hi > s.lo);
-  if (!shards.length) throw new Error('no matching documents found in the live index');
-
-  const picks = [];
-  for (let i = 0; i < numDocs; i++) {
-    const s = shards[Math.floor(Math.random() * shards.length)];
-    const rank = s.lo + Math.floor(Math.random() * (s.hi - s.lo));
-    picks.push({ shard: s.shard, rank });
-  }
-
-  const texts = await Promise.all(
-    picks.map(({ shard, rank }) => infiniFetchDocument(shard, rank).catch(() => ''))
-  );
-
-  let text = texts.filter(Boolean).join('\n\n');
-  if (!text.trim()) throw new Error('sample came back empty');
-  if (text.length > maxChars) text = text.slice(0, maxChars);
-  return text;
-}
-
 if (typeof module !== 'undefined') {
   module.exports = {
-    infiniNgramDistribution, infiniNgramWithBackoff, fetchInfiniGramCorpusText,
+    infiniNgramDistribution, infiniNgramWithBackoff,
     INFINIGRAM_INDEX, INFINIGRAM_LABEL,
   };
 }

@@ -1,14 +1,15 @@
 // app.js
-// Wires up the UI: builds n-gram models from the story text, runs the
-// sampling experiment for each selected model, and (optionally) runs
-// a real small language model fully in-browser via transformers.js for
-// a bidirectional-context comparison.
+// Wires up the UI: for each blank, queries the REAL, live infini-gram API
+// (see infinigram.js) for exact n-gram statistics over the 2.6T-token
+// Dolma corpus — no local training, no local corpus, no story blending —
+// and, optionally, runs a real small language model fully in-browser via
+// transformers.js for a bidirectional-context comparison.
 //
 // Blanks are marked with <blank> (case-insensitive). A passage can
-// contain more than one <blank> — each one gets its own results
-// section below, and every model predicts each blank independently
-// from its own surrounding real words (other blanks in the passage
-// are never treated as context, since their value is unknown).
+// contain more than one <blank> — each one gets its own results section,
+// and every model predicts each blank independently from its own
+// surrounding real words (other blanks are never treated as context,
+// since their value is unknown).
 
 const els = {
   prompt: document.getElementById('prompt'),
@@ -19,23 +20,12 @@ const els = {
   picker: document.getElementById('model-picker'),
 };
 
-// N-gram rows (unigram/bigram/trigram/4-gram) are pure lookups against the
-// pretrained static model in ngram-model/ (built offline by train.py) —
-// no story blending, no live in-browser training, no background corpus.
-// The whole table for each queried order is preloaded once (see
-// preloadAllShards in static-ngram-model.js) — nothing is sampled.
-
-const MODEL_LABELS = {
-  unigram: 'Unigram',
-  bigram: 'Bigram',
-  trigram: 'Trigram',
-  fourgram: '4-gram',
-};
+const MODEL_LABELS = { unigram: 'Unigram', bigram: 'Bigram', trigram: 'Trigram', fourgram: '4-gram' };
 const MODEL_ORDER = { unigram: 1, bigram: 2, trigram: 3, fourgram: 4 };
+const ORDER_LABELS = { 1: 'Unigram', 2: 'Bigram', 3: 'Trigram', 4: '4-gram' };
 
 // Recognizes <blank> (any casing, optional whitespace inside the tag) as
-// the canonical marker. A run of 3+ underscores is still accepted too, so
-// passages written for the old marker keep working.
+// the canonical marker. A run of 3+ underscores is still accepted too.
 const BLANK_RE = /<\s*blank\s*>|_{3,}/gi;
 
 const CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳'];
@@ -46,9 +36,8 @@ function selectedModels() {
 }
 
 // Splits the passage on every blank marker into text.length+1 "chunks".
-// chunks[i] is the real text that sits immediately before blank i (and
-// chunks[0] is everything before the first blank); chunks[chunks.length-1]
-// is everything after the last blank. Returns null if there's no blank.
+// chunks[i] is the real text that sits immediately before blank i.
+// Returns null if there's no blank.
 function splitOnBlanks(text) {
   const matches = [...text.matchAll(BLANK_RE)];
   if (!matches.length) return null;
@@ -62,33 +51,37 @@ function splitOnBlanks(text) {
   return chunks;
 }
 
-function leftContextTokens(chunkBefore) {
-  const sents = toSentences(tokenize(chunkBefore));
-  return sents.length ? sents[sents.length - 1] : [];
+// The exact words (real case, real punctuation attached — e.g. "banana,")
+// immediately before a blank, restricted to the current sentence only (so
+// context never reaches back across a period into an unrelated earlier
+// sentence). Deliberately NOT lowercased/stripped: infini-gram runs a real
+// tokenizer server-side over whatever literal text you send it, so real
+// punctuation (a comma before a blank in a list, for instance) is signal.
+function rawLeftContextWords(chunkBefore) {
+  const lastEnd = Math.max(
+    chunkBefore.lastIndexOf('.'),
+    chunkBefore.lastIndexOf('!'),
+    chunkBefore.lastIndexOf('?')
+  );
+  const segment = lastEnd >= 0 ? chunkBefore.slice(lastEnd + 1) : chunkBefore;
+  return segment.trim().split(/\s+/).filter(Boolean);
 }
 
-function rightContextTokens(chunkAfter) {
-  const sents = toSentences(tokenize(chunkAfter));
-  return sents.length ? sents[0] : [];
-}
-
-// Pure lookup against the pretrained static model — no blending with
-// anything the user typed, no live training, no background corpus.
-// Returns synthesized integer "sample counts" out of the model's exact
-// probabilities (top slice only — the renderer only ever shows 8) so this
-// plugs into the existing count/totalRuns percentage renderer unchanged,
-// without actually drawing `runs` random samples (unnecessary here since
-// the full distribution is already known exactly).
-async function ngramPredictStatic(staticModel, chunks, blankIdx, runs) {
-  const ctxTokens = leftContextTokens(chunks[blankIdx]);
-  const dist = (await staticModel.distribution(ctxTokens)).sort((a, b) => b[1] - a[1]);
-  const freqPairs = dist.slice(0, 32).map(([w, p]) => [w, Math.max(0, Math.round(p * runs))]);
-  return { freqPairs };
+// Queries the live model for one blank at one requested order. Returns
+// synthesized integer "counts" out of the exact real probabilities (top
+// slice only) so this plugs into the existing count/totalRuns percentage
+// renderer, without pretending anything was actually sampled — the
+// underlying numbers are exact corpus statistics, not draws.
+async function ngramPredictLive(order, chunks, blankIdx, displayScale) {
+  const rawWords = rawLeftContextWords(chunks[blankIdx]);
+  const { pairs, usedOrder, promptCnt, approx, backedOff } =
+    await infiniNgramWithBackoff(rawWords, order);
+  const freqPairs = pairs.slice(0, 32).map(([w, p]) => [w, Math.max(0, Math.round(p * displayScale))]);
+  return { freqPairs, usedOrder, promptCnt, approx, backedOff };
 }
 
 // Short "...last few words <blank> first few words..." caption for a
-// single blank's results section, so it's obvious which hole a table
-// belongs to without rereading the whole passage.
+// single blank's results section.
 function localSnippet(chunks, blankIdx) {
   const beforeWords = chunks[blankIdx].trim().split(/\s+/).filter(Boolean);
   const afterWords = chunks[blankIdx + 1].trim().split(/\s+/).filter(Boolean);
@@ -99,10 +92,8 @@ function localSnippet(chunks, blankIdx) {
   return `${leadIn}${before} <b>___</b> ${after}${leadOut}`.trim();
 }
 
-// The spinner lives in its own full-page overlay, completely separate from
-// the #results container. Earlier this reused #results, which meant every
-// showSpinner() call wiped out the results table mid-run (losing rows and
-// breaking multi-model runs) and only ever covered part of the page.
+// The spinner lives in its own full-page overlay, separate from #results,
+// so it never wipes out results mid-run.
 let overlayEl = null;
 let overlayMsgEl = null;
 
@@ -204,13 +195,13 @@ function predCell(word, pct) {
   return td;
 }
 
-function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns, tagOverride) {
+function addNgramRow(blankIdx, blankCount, chunks, label, freqPairs, totalRuns, tag, backedOff) {
   const tbody = ensureBlankSection(blankIdx, blankCount, chunks);
   const top = freqPairs.slice(0, 8);
   const tr = document.createElement('tr');
+  if (backedOff) tr.className = 'fallback-row';
   const modelTd = document.createElement('td');
   modelTd.className = 'model-cell';
-  const tag = tagOverride || `n-gram · story blended with a bundled real-text background corpus · ${totalRuns} samples, left-context only`;
   modelTd.innerHTML = `${label}<span class="model-tag">${tag}</span>`;
   tr.appendChild(modelTd);
   for (const [word, count] of top) {
@@ -235,8 +226,6 @@ function addLLMRow(blankIdx, blankCount, chunks, predictions) {
   tbody.appendChild(tr);
 }
 
-
-
 function addErrorNote(message) {
   const note = document.createElement('p');
   note.className = 'error-note';
@@ -256,7 +245,7 @@ async function getLLMPipeline(setStatus) {
 
 async function run() {
   const promptText = els.prompt.value.trim();
-  const runs = Math.max(10, Math.min(5000, parseInt(els.runs.value, 10) || 1000));
+  const displayScale = Math.max(10, Math.min(5000, parseInt(els.runs.value, 10) || 1000));
   const models = selectedModels();
 
   const chunks = splitOnBlanks(promptText);
@@ -275,8 +264,6 @@ async function run() {
   blankSections = new Map();
   resultsHeaderBuilt = false;
 
-  // Whole-passage preview with every blank replaced by a numbered marker,
-  // so it's clear at a glance which table below corresponds to which hole.
   const previewHtml = chunks
     .map(c => c.trim())
     .reduce((acc, chunk, i) => {
@@ -289,94 +276,42 @@ async function run() {
   showSpinner('Warming up…');
 
   const ranLabels = [];
-  // Training text for every model: the passage with blanks removed. Chunks
-  // are joined with a sentence-ending period, NOT a bare space — joining
-  // with just a space would make the text immediately before a blank and
-  // the text immediately after it look like directly adjacent words to the
-  // n-gram/embeddings/RNN trainers (e.g. "...a juicy" + "that is..." would
-  // train the model on "juicy" being followed by "that", since that's
-  // literally what the blank-deleted sentence looks like). Since this is
-  // the user's own story, repeated via STORY_WEIGHT, that single artificial
-  // adjacency was strong enough to dominate every prediction. A period
-  // forces the tokenizer's sentence splitter to treat the two sides as
-  // separate sentences during training, so a blank's own left/right text
-  // is never fed back in as a false answer to itself. Left/right context
-  // for prediction is unaffected — that's computed straight from the
-  // individual chunks below, never from storyOnly.
-  const storyOnly = chunks.map(c => c.trim()).filter(Boolean).join('. ');
-  const stillToRun = () => models.includes('llm');
-
-  // Resolve the background text ONCE for the whole run: a real text sample
-  // pulled from the bundled static-corpus/ chunk files (see
-  // static-corpus.js) — no third-party API, no live network dependency
-  // beyond this site's own files. Falls back to the small built-in corpus
-  // if that somehow fails. Every model that uses a background signal at all
-  // (n-grams, embeddings, RNN) now shares this same real-text sample —
-  // this replaced the old design where the n-gram models instead queried
-  // the (no longer reliable) infini-gram API live per prediction.
-  const ngramModels = models.filter(m => m in MODEL_ORDER);
-
-  // Resolve ONCE whether the pretrained static n-gram model (ngram-model/,
-  // built offline by train.py — see README) is present. When it is, the
-  // n-gram rows query it directly instead of live-training on a random
-  // static-corpus.js slice, so they no longer need `backgroundText` at
-  // all; embeddings/RNN still do, since they need actual sentences to
-  // train on, not a count table.
-  if (ngramModels.length) {
-    updateSpinnerMessage('Checking for a pretrained n-gram model…');
-    await new Promise(r => setTimeout(r, 0));
-    const ok = await staticModelAvailable(); // no try/catch — must succeed or the run stops
-    if (!ok) {
-      throw new Error('ngram-model/ (pretrained static model) failed to load — refusing to silently fall back to live training.');
-    }
-  }
-
   const blankIdxs = Array.from({ length: blankCount }, (_, i) => i);
+  const ngramModels = models.filter(m => m in MODEL_ORDER);
 
   for (const key of ngramModels) {
     const order = MODEL_ORDER[key];
 
-    updateSpinnerMessage(`Loading the pretrained ${MODEL_LABELS[key]} model…`);
-    await new Promise(r => setTimeout(r, 0));
-    const staticModel = await loadStaticNgramModel(order); // no try/catch — must succeed
-    const tag = `n-gram · pretrained static model only (ngram-model/) — no story blending, no live training · ${runs} samples, left-context only`;
-
     for (const b of blankIdxs) {
       updateSpinnerMessage(
         blankCount > 1
-          ? `Querying the pretrained ${MODEL_LABELS[key]}, blank ${b + 1} of ${blankCount}…`
-          : `Querying the pretrained ${MODEL_LABELS[key]}…`
+          ? `Querying live ${MODEL_LABELS[key]} (infini-gram), blank ${b + 1} of ${blankCount}…`
+          : `Querying live ${MODEL_LABELS[key]} (infini-gram)…`
       );
       await new Promise(r => setTimeout(r, 0));
-      const { freqPairs } = await ngramPredictStatic(staticModel, chunks, b, runs);
-      addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, runs, tag);
+      try {
+        const { freqPairs, usedOrder, promptCnt, approx, backedOff } =
+          await ngramPredictLive(order, chunks, b, displayScale);
+        const seenNote = `context seen ${promptCnt.toLocaleString()}×${approx ? ' (approximate)' : ''}`;
+        const tag = backedOff
+          ? `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram · no match at ${MODEL_LABELS[key]} order — backed off to ${ORDER_LABELS[usedOrder]} · ${seenNote}`
+          : `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram · ${seenNote}`;
+        addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, displayScale, tag, backedOff);
+      } catch (err) {
+        console.error(err);
+        addErrorNote(`Couldn't reach the live n-gram model for ${MODEL_LABELS[key]}, blank ${b + 1} (${err.message || 'network error'}).`);
+      }
     }
-
-    hideSpinner();
     ranLabels.push(MODEL_LABELS[key]);
-    if (ngramModels.indexOf(key) < ngramModels.length - 1 || stillToRun()) {
-      showSpinner('Preparing next model…');
-    }
   }
-
 
   if (models.includes('llm')) {
     showSpinner('Loading DistilBERT…');
     try {
       const pipe = await getLLMPipeline(msg => updateSpinnerMessage(msg));
       updateSpinnerMessage('Running DistilBERT on the full passage…');
-      // Replace every blank with a single [MASK] token in one pass, rather
-      // than looping per blank — a masked LM predicts all mask positions
-      // from one shared bidirectional forward pass over the *whole*
-      // passage, so this is both more correct (every blank actually gets
-      // the real text of every other blank position as context, not a
-      // leftover stray marker) and faster than calling the pipeline once
-      // per blank.
       const maskedSentence = chunks.join('[MASK]').replace(/\s+/g, ' ').trim();
       const rawPredictions = await pipe(maskedSentence, { topk: 10 });
-      // transformers.js returns a flat array of predictions when there is
-      // exactly one [MASK], and an array of arrays (one per mask, in the
-      // order the masks appear) when there is more than one.
       const perBlank = blankCount === 1 && !Array.isArray(rawPredictions[0])
         ? [rawPredictions]
         : rawPredictions;
@@ -384,21 +319,16 @@ async function run() {
         const predictions = perBlank[b] || [];
         addLLMRow(b, blankCount, chunks, predictions);
       }
-      hideSpinner();
       ranLabels.push('DistilBERT');
     } catch (err) {
       console.error(err);
-      hideSpinner();
       addErrorNote(`Couldn't load the in-browser LLM (${err.message || 'network or WebAssembly issue'}). This needs internet access to fetch model weights the first time.`);
     }
   }
 
   hideSpinner();
-  const notes = [];
-  if (ngramModels.length) notes.push('n-grams: pretrained static model (full table, no sampling)');
-  const corpusNote = notes.length ? ` (${notes.join('; ')})` : '';
   els.status.textContent = ranLabels.length
-    ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'}${corpusNote}.`
+    ? `Done — ran ${ranLabels.join(', ')} on ${blankCount} blank${blankCount === 1 ? '' : 's'} (n-grams: live from infini-gram/Dolma, no local training).`
     : `Nothing ran — check the browser console for errors.`;
   els.runBtn.disabled = false;
 }

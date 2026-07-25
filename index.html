@@ -16,9 +16,9 @@
     <p class="eyebrow">a small language-model lab</p>
     <h1>Pre-LLM Next-Word Prediction</h1>
     <p class="dek">Old n-gram models guess the next word from raw frequency alone, which is very often wrong. Write a passage below
-    with one or more blanks marked <code>&lt;blank&gt;</code>to see how the holes are filled (i.e., predicted) with various models. </p>
+    with one or more blanks marked <code>&lt;blank&gt;</code> to see how the holes are filled (i.e., predicted) with various models.</p>
     <br/>
-    <p class="dek">The final model<code>&lt;BERT&gt;</code>is small, but shows how far LLMs have come.</p>
+    <p class="dek">The final model <code>&lt;BERT&gt;</code> is small, but shows how far LLMs have come.</p>
   </div>
 </header>
 
@@ -30,18 +30,17 @@
     <textarea id="prompt" rows="9">Maya and Mia had been inseparable since kindergarten, but everyone in town knew they were opposites. Mia was the one who volunteered for every talent show and student council race, while Maya spent most assemblies hiding behind her sister, mortified at the thought of a microphone. So when the graduation committee announced that only one twin would deliver the commencement speech, the whole gym assumed it would be the outgoing one. But when the lights came up and a name was called, it was <blank> who walked, trembling, to the podium.</textarea>
 
     <div class="field-group wide">
-    <p class="hint tiny">The n-gram models (<b>unigram/bigram/trigram/4-gram</b>) use a pretrained model built
-    offline from a large corpus (<code>ngram-model/</code>, produced by <code>train.py</code> — see the
-    README) if it's present in this deployment, blended with your own story. If <code>ngram-model/</code>
-    hasn't been generated yet, they fall back to training live in your browser, same as
-    <b>embeddings</b> and <b>RNN</b> always do, on a bundled real-text sample (~1GB of Wikipedia text,
-    split into chunk files in <code>static-corpus/</code> and shipped with this site — no external API
-    call, no live network dependency). Your story is trained alongside it and repeated so a
-    well-attested story-specific pattern can still win out over the generic background.</p>
+    <p class="hint tiny">The n-gram models (<b>unigram/bigram/trigram/4-gram</b>) are queried <b>live</b> against
+    <a href="https://infini-gram.io/" target="_blank" rel="noopener">infini-gram</a>, a public, no-key API that holds a
+    real, complete index over <b>Dolma v1.7 (2.6 trillion tokens</b> of web pages, books, Wikipedia, Reddit, and code).
+    Every prediction is an exact real count from that corpus — nothing is trained locally, nothing is stored in this
+    repo, and your own story text is never blended in. If an exact-length context was never seen in the corpus, the
+    model backs off to a shorter context exactly the way real n-gram models are supposed to (and the results table
+    tells you plainly when that happened).</p>
     </div>
 
     <div class="field-group">
-      <label class="field-label" for="runs">Samples per model</label>
+      <label class="field-label" for="runs">Display scale <span class="hint">— every model below returns an exact real probability, not a simulated draw; this just controls the "count / N" style shown in each cell.</span></label>
       <input type="number" id="runs" value="1000" min="10" max="5000" step="10">
     </div>
 
@@ -49,31 +48,32 @@
     <div class="model-picker" id="model-picker">
       <label class="chip">
         <input type="checkbox" value="unigram" checked><span>Unigram</span>
-        <span class="info-dot" tabindex="0" data-tip="Guesses from raw word frequency — no context. Blends your story's own word counts with frequency from the bundled real-text background corpus.">i</span>
+        <span class="info-dot" tabindex="0" data-tip="No context at all — the real overall word-frequency distribution across all 2.6T tokens of Dolma, queried live via infini-gram.">i</span>
       </label>
       <label class="chip">
         <input type="checkbox" value="bigram" checked><span>Bigram</span>
-        <span class="info-dot" tabindex="0" data-tip="Looks at the single word right before the blank. Blends whatever your story itself has shown following that word with the same 1-word context in the bundled background corpus.">i</span>
+        <span class="info-dot" tabindex="0" data-tip="Conditions on the single real word right before the blank. Queried live — exact counts of what actually follows that word across the whole corpus, not an estimate.">i</span>
       </label>
       <label class="chip">
         <input type="checkbox" value="trigram" checked><span>Trigram</span>
-        <span class="info-dot" tabindex="0" data-tip="Looks at the two words before the blank. Blends your story's own evidence with that exact 2-word context in the bundled background corpus — sharper than bigram when that pair is real, common English.">i</span>
+        <span class="info-dot" tabindex="0" data-tip="Conditions on the two real words before the blank. If that exact 2-word string was never seen in the corpus, backs off to bigram — this is shown in the result, not hidden.">i</span>
       </label>
       <label class="chip">
-        <input type="checkbox" value="fourgram"><span>4-gram</span>
-        <span class="info-dot" tabindex="0" data-tip="Looks at the three words before the blank. Blends your story's own evidence with that exact 3-word context in the bundled background corpus; backs off toward shorter contexts (Kneser-Ney) if that exact run of words has never occurred.">i</span>
+        <input type="checkbox" value="fourgram" checked><span>4-gram</span>
+        <span class="info-dot" tabindex="0" data-tip="Conditions on the three real words before the blank — the most specific n-gram model here. Backs off toward trigram/bigram/unigram if that exact 3-word run was never seen, same real Kneser-Ney-style idea, computed live from actual corpus counts.">i</span>
       </label>
       <label class="chip llm-chip">
         <input type="checkbox" value="llm" id="llm-toggle"><span>Small LLM (in-browser, DistilBERT)</span>
         <span class="info-dot" tabindex="0" data-tip="A real pretrained transformer. It reads the whole passage — both before and after the blank — at once using attention, instead of hand-built statistics.">i</span>
       </label>
     </div>
-    <p class="hint tiny">Six stages of the same field, each on the same blank: <b>unigram → bigram → trigram/4-gram</b> (frequency tables,
-    1980s–2000s, trained here on your story blended with a bundled real-text background corpus) → <b>embeddings</b> (words as
-    vectors from co-occurrence statistics, the word2vec/GloVe-era idea, 2003–2013) →
-    <b>RNN</b> (a running hidden state instead of a fixed window, Mikolov 2010) → <b>LLM</b> (a real pretrained transformer using
-    full bidirectional context, 2018–present).</p>
-    <p class="hint tiny" id="llm-note">The LLM option downloads a ~65&nbsp;MB model the first time (cached after that) and runs it fully in your browser — no server, no API key.</p>
+    <p class="hint tiny">Two eras of the same task, on the same blank: <b>unigram → bigram → trigram → 4-gram</b> (frequency
+    tables, 1980s–2000s, computed here from exact real counts over a 2.6-trillion-token corpus via
+    <a href="https://infini-gram.io/" target="_blank" rel="noopener">infini-gram</a>) → <b>LLM</b> (a real pretrained
+    transformer using full bidirectional context, 2018–present). The n-gram side has no notion of meaning, rhyme, or
+    reference — it only ever matches literal strings of words it has actually seen before, which is exactly why it's
+    "very often wrong" even when the underlying counts are real and enormous.</p>
+    <p class="hint tiny" id="llm-note">The LLM option downloads a ~65&nbsp;MB model the first time (cached after that) and runs it fully in your browser — no server, no API key. The n-gram queries also need internet access (to reach the public infini-gram API) but download nothing to your machine.</p>
 
     <button id="run-btn" class="run-btn">Run experiment</button>
     <p class="status" id="status" aria-live="polite"></p>
@@ -85,19 +85,19 @@
 
 <footer class="site-foot">
   <div class="wrap">
-    <p><b>N-grams (unigram, bigram, trigram, 4-gram)</b> use a pretrained model built offline from a
-    large corpus (<code>ngram-model/</code>, see <code>train.py</code>) when it's present, blended with
-    your own story; otherwise, and always for <b>embeddings</b> and <b>RNN</b>, models train live in your
-    browser on a real text sample bundled directly with this site —
-    <a href="https://dumps.wikimedia.org/" target="_blank" rel="noopener">Wikipedia</a> text, split into
-    small chunk files under <code>static-corpus/</code> so no single file approaches GitHub's size limits,
-    and no third-party API call is needed at runtime. Your own story is trained alongside it (repeated
-    a few times so it isn't statistically swamped), so a well-attested story-specific pattern can still
-    win out over the generic background.</p>
+    <p><b>N-grams (unigram, bigram, trigram, 4-gram)</b> are answered live by
+    <a href="https://infini-gram.io/" target="_blank" rel="noopener">infini-gram</a>, a free public API (no key
+    required) indexing <b>Dolma v1.7</b> — 2.6 trillion real tokens of web text, books, Wikipedia, Reddit, and code,
+    published as the Hugging Face dataset
+    <a href="https://huggingface.co/datasets/allenai/dolma" target="_blank" rel="noopener">allenai/dolma</a>. Every
+    number shown is an exact count from that corpus, not a locally-trained approximation and not a simulated sample.
+    No text is stored in or shipped with this repo, and nothing you type is ever mixed into the n-gram predictions —
+    they reflect the real corpus alone. See Liu, Min, Zettlemoyer, Choi &amp; Hajishirzi (2024),
+    <a href="https://arxiv.org/abs/2401.17377" target="_blank" rel="noopener">"Infini-gram: Scaling Unbounded n-gram Language Models to a Trillion Tokens."</a></p>
   </div>
 </footer>
 
-<script src="static-ngram-model.js"></script>
+<script src="infinigram.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

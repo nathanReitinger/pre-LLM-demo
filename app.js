@@ -20,9 +20,10 @@ const els = {
   picker: document.getElementById('model-picker'),
 };
 
-const MODEL_LABELS = { unigram: 'Unigram', bigram: 'Bigram', trigram: 'Trigram', fourgram: '4-gram' };
-const MODEL_ORDER = { unigram: 1, bigram: 2, trigram: 3, fourgram: 4 };
+const MODEL_LABELS = { unigram: 'Unigram', bigram: 'Bigram', trigram: 'Trigram', fourgram: '4-gram', infinigram: '∞-gram' };
+const MODEL_ORDER = { unigram: 1, bigram: 2, trigram: 3, fourgram: 4, infinigram: 'full' };
 const ORDER_LABELS = { 1: 'Unigram', 2: 'Bigram', 3: 'Trigram', 4: '4-gram' };
+function orderLabel(n) { return ORDER_LABELS[n] || `${n - 1}-word context`; }
 
 // Recognizes <blank> (any casing, optional whitespace inside the tag) as
 // the canonical marker. A run of 3+ underscores is still accepted too.
@@ -217,7 +218,7 @@ function addLLMRow(blankIdx, blankCount, chunks, predictions) {
   const tr = document.createElement('tr');
   const modelTd = document.createElement('td');
   modelTd.className = 'model-cell';
-  modelTd.innerHTML = `DistilBERT<span class="model-tag">masked LLM · full left + right context</span>`;
+  modelTd.innerHTML = `ModernBERT<span class="model-tag">masked LLM · full left + right context · 149M params, trained on 2T tokens (2024)</span>`;
   tr.appendChild(modelTd);
   for (const p of top) {
     tr.appendChild(predCell(p.token_str.trim(), (p.score * 100).toFixed(1)));
@@ -236,9 +237,9 @@ function addErrorNote(message) {
 let llmPipelinePromise = null;
 async function getLLMPipeline(setStatus) {
   if (!llmPipelinePromise) {
-    setStatus('Loading DistilBERT into your browser (first time only)…');
-    llmPipelinePromise = import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2')
-      .then(({ pipeline }) => pipeline('fill-mask', 'Xenova/distilbert-base-uncased'));
+    setStatus('Loading ModernBERT into your browser (first time only)…');
+    llmPipelinePromise = import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1')
+      .then(({ pipeline }) => pipeline('fill-mask', 'onnx-community/ModernBERT-base-ONNX'));
   }
   return llmPipelinePromise;
 }
@@ -280,9 +281,11 @@ async function run() {
   const ngramModels = models.filter(m => m in MODEL_ORDER);
 
   for (const key of ngramModels) {
-    const order = MODEL_ORDER[key];
 
     for (const b of blankIdxs) {
+      const order = MODEL_ORDER[key] === 'full'
+        ? rawLeftContextWords(chunks[b]).length + 1   // every real word before this blank
+        : MODEL_ORDER[key];
       updateSpinnerMessage(
         blankCount > 1
           ? `Querying live ${MODEL_LABELS[key]} (infini-gram), blank ${b + 1} of ${blankCount}…`
@@ -293,9 +296,10 @@ async function run() {
         const { freqPairs, usedOrder, promptCnt, approx, backedOff } =
           await ngramPredictLive(order, chunks, b, displayScale);
         const seenNote = `context seen ${promptCnt.toLocaleString()}×${approx ? ' (approximate)' : ''}`;
+        const contextNote = key === 'infinigram' ? ` (${order - 1}-word context)` : '';
         const tag = backedOff
-          ? `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram · no match at ${MODEL_LABELS[key]} order — backed off to ${ORDER_LABELS[usedOrder]} · ${seenNote}`
-          : `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram · ${seenNote}`;
+          ? `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram · no match at ${MODEL_LABELS[key]}${contextNote} — backed off to ${orderLabel(usedOrder)} · ${seenNote}`
+          : `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram${contextNote} · ${seenNote}`;
         addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, displayScale, tag, backedOff);
       } catch (err) {
         console.error(err);

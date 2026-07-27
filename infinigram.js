@@ -130,7 +130,7 @@ async function infiniQuery(payload) {
 // whole-corpus unigram distribution. Returns word-level probabilities
 // (merged/renormalized over whole-word tokens only).
 async function infiniNgramDistribution(contextText) {
-  const data = await infiniQuery({ query_type: 'ntd', query: contextText, max_support: 1000 });
+  const data = await infiniQuery({ query_type: 'ntd', query: contextText, max_support: 100000 });
   const byId = data.result_by_token_id || {};
   const merged = new Map(); // word -> prob
   let keptMass = 0;

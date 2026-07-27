@@ -62,8 +62,12 @@
         <input type="checkbox" value="fourgram" checked><span>4-gram</span>
         <span class="info-dot" tabindex="0" data-tip="Conditions on the three real words before the blank — the most specific n-gram model here. Backs off toward trigram/bigram/unigram if that exact 3-word run was never seen, same real Kneser-Ney-style idea, computed live from actual corpus counts.">i</span>
       </label>
+      <label class="chip">
+        <input type="checkbox" value="infinigram" checked><span>∞-gram (full context)</span>
+        <span class="info-dot" tabindex="0" data-tip="Uses EVERY real word before the blank in the current sentence, not capped at 3 — this is what 'infini-gram' actually means. Usually the sharpest of the n-gram rows, since it has the most context to match against.">i</span>
+      </label>
       <label class="chip llm-chip">
-        <input type="checkbox" value="llm" id="llm-toggle"><span>Small LLM (in-browser, DistilBERT)</span>
+        <input type="checkbox" value="llm" id="llm-toggle"><span>Small LLM (in-browser, ModernBERT)</span>
         <span class="info-dot" tabindex="0" data-tip="A real pretrained transformer. It reads the whole passage — both before and after the blank — at once using attention, instead of hand-built statistics.">i</span>
       </label>
     </div>
@@ -73,7 +77,7 @@
     transformer using full bidirectional context, 2018–present). The n-gram side has no notion of meaning, rhyme, or
     reference — it only ever matches literal strings of words it has actually seen before, which is exactly why it's
     "very often wrong" even when the underlying counts are real and enormous.</p>
-    <p class="hint tiny" id="llm-note">The LLM option downloads a ~65&nbsp;MB model the first time (cached after that) and runs it fully in your browser — no server, no API key. The n-gram queries also need internet access (to reach the public infini-gram API) but download nothing to your machine.</p>
+    <p class="hint tiny" id="llm-note">The LLM option downloads ModernBERT-base (~150&nbsp;MB, quantized) the first time — noticeably bigger than the old DistilBERT, but a real 2024-era model with far more training data behind it. Cached after the first load; runs fully in your browser, no server, no API key. The n-gram queries also need internet access (to reach the public infini-gram API, via your Cloudflare proxy) but download nothing to your machine.</p>
 
     <button id="run-btn" class="run-btn">Run experiment</button>
     <p class="status" id="status" aria-live="polite"></p>

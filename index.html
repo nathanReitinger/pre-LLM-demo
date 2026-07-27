@@ -80,10 +80,12 @@
     <p class="hint tiny" id="llm-note">The LLM option downloads ModernBERT-base (~150&nbsp;MB, quantized) the first time — noticeably bigger than the old DistilBERT, but a real 2024-era model with far more training data behind it. Cached after the first load; runs fully in your browser, no server, no API key. The n-gram queries also need internet access (to reach the public infini-gram API, via your Cloudflare proxy) but download nothing to your machine.</p>
 
     <button id="run-btn" class="run-btn">Run experiment</button>
+    <button id="test-suite-btn" class="run-btn test-suite-btn" type="button">Run test suite</button>
     <p class="status" id="status" aria-live="polite"></p>
   </section>
 
   <section id="results"></section>
+  <section id="test-results"></section>
 
 </main>
 

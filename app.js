@@ -15,12 +15,14 @@ const els = {
   prompt: document.getElementById('prompt'),
   runs: document.getElementById('runs'),
   runBtn: document.getElementById('run-btn'),
+  testBtn: document.getElementById('test-suite-btn'),
   status: document.getElementById('status'),
   results: document.getElementById('results'),
+  testResults: document.getElementById('test-results'),
   picker: document.getElementById('model-picker'),
 };
 
-const MODEL_LABELS = { unigram: 'Unigram', bigram: 'Bigram', trigram: 'Trigram', fourgram: '4-gram', infinigram: '∞-gram' };
+const MODEL_LABELS = { unigram: 'Unigram', bigram: 'Bigram', trigram: 'Trigram', fourgram: '4-gram', infinigram: '∞-gram', llm: 'ModernBERT' };
 const MODEL_ORDER = { unigram: 1, bigram: 2, trigram: 3, fourgram: 4, infinigram: 'full' };
 const ORDER_LABELS = { 1: 'Unigram', 2: 'Bigram', 3: 'Trigram', 4: '4-gram' };
 function orderLabel(n) { return ORDER_LABELS[n] || `${n - 1}-word context`; }
@@ -75,11 +77,161 @@ function rawLeftContextWords(chunkBefore) {
 // underlying numbers are exact corpus statistics, not draws.
 async function ngramPredictLive(order, chunks, blankIdx, displayScale) {
   const rawWords = rawLeftContextWords(chunks[blankIdx]);
-  const { pairs, usedOrder, promptCnt, approx, backedOff } =
+  const { pairs, usedOrder, promptCnt, approx, backedOff, contextLimited } =
     await infiniNgramWithBackoff(rawWords, order);
   const freqPairs = pairs.slice(0, 32).map(([w, p]) => [w, Math.max(0, Math.round(p * displayScale))]);
-  return { freqPairs, usedOrder, promptCnt, approx, backedOff };
+  return { freqPairs, usedOrder, promptCnt, approx, backedOff, contextLimited, availableWords: rawWords.length };
 }
+
+// --- Test suite -------------------------------------------------------
+// A fixed set of known-tricky prompts, run against every model at once,
+// so a code change (a backoff bug, an endpoint typo, a bad API param)
+// shows up immediately as a visible red/amber cell instead of something
+// you only notice by accident while testing one prompt by hand.
+
+const TEST_CASES = [
+  { label: 'Idiom, mid-sentence (1-word context)', text: 'Happy <blank> to you, happy birthday to you.' },
+  { label: 'One word of context', text: 'Thank <blank>' },
+  { label: 'Two words of context', text: 'I love <blank>' },
+  { label: 'Three words of context', text: 'To infinity and <blank>' },
+];
+
+const TEST_NGRAM_MODELS = ['unigram', 'bigram', 'trigram', 'fourgram', 'infinigram'];
+const TEST_COLUMNS = [...TEST_NGRAM_MODELS, 'llm'];
+
+async function runOneNgramCell(key, chunks, blankIdx, displayScale) {
+  try {
+    const order = MODEL_ORDER[key] === 'full'
+      ? rawLeftContextWords(chunks[blankIdx]).length + 1
+      : MODEL_ORDER[key];
+    const { freqPairs, backedOff, contextLimited } = await ngramPredictLive(order, chunks, blankIdx, displayScale);
+    const top3 = freqPairs.slice(0, 3).map(([w, c]) => `${w} (${((c / displayScale) * 100).toFixed(1)}%)`);
+    return { status: (backedOff || contextLimited) ? 'warn' : 'ok', lines: top3.length ? top3 : ['(no data)'] };
+  } catch (err) {
+    console.error(err);
+    return { status: 'error', lines: [err.message || 'request failed'] };
+  }
+}
+
+async function runOneLLMCell(chunks, blankIdx, blankCount) {
+  try {
+    const pipe = await getLLMPipeline(msg => updateSpinnerMessage(msg));
+    const maskedSentence = chunks.join('[MASK]').replace(/\s+/g, ' ').trim();
+    const rawPredictions = await pipe(maskedSentence, { topk: 5 });
+    const perBlank = blankCount === 1 && !Array.isArray(rawPredictions[0]) ? [rawPredictions] : rawPredictions;
+    const preds = perBlank[blankIdx] || [];
+    const top3 = preds.slice(0, 3).map(p => `${p.token_str.trim()} (${(p.score * 100).toFixed(1)}%)`);
+    return { status: 'ok', lines: top3.length ? top3 : ['(no data)'] };
+  } catch (err) {
+    console.error(err);
+    return { status: 'error', lines: [err.message || 'request failed'] };
+  }
+}
+
+let testCellMap = new Map();
+
+function buildTestTableSkeleton() {
+  els.testResults.innerHTML = '';
+  testCellMap = new Map();
+
+  const heading = document.createElement('h2');
+  heading.className = 'results-heading';
+  heading.textContent = 'Test Suite Results';
+  els.testResults.appendChild(heading);
+
+  const legend = document.createElement('p');
+  legend.className = 'test-legend';
+  legend.innerHTML = `Reading the grid: <span class="swatch ok"></span>full requested context used
+    <span class="swatch warn"></span>backed off, or fewer real words were available than requested
+    <span class="swatch error"></span>the request actually failed`;
+  els.testResults.appendChild(legend);
+
+  const scroll = document.createElement('div');
+  scroll.className = 'table-scroll';
+  const table = document.createElement('table');
+  table.className = 'results-table test-suite-table';
+
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  headRow.innerHTML = `<th>Test case</th>` + TEST_COLUMNS.map(k => `<th>${MODEL_LABELS[k]}</th>`).join('');
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  TEST_CASES.forEach((tc, tcIdx) => {
+    const chunks = splitOnBlanks(tc.text);
+    const blankCount = chunks ? chunks.length - 1 : 0;
+    if (!blankCount) return;
+    for (let b = 0; b < blankCount; b++) {
+      const tr = document.createElement('tr');
+      const labelTd = document.createElement('td');
+      labelTd.className = 'model-cell';
+      const snippetHtml = tc.text.replace(BLANK_RE, '<b class="blank-marker">①</b>');
+      labelTd.innerHTML = `${snippetHtml}<span class="model-tag">${tc.label}</span>`;
+      tr.appendChild(labelTd);
+
+      for (const key of TEST_COLUMNS) {
+        const td = document.createElement('td');
+        td.className = 'pred-cell test-cell test-cell-pending';
+        td.textContent = '…';
+        tr.appendChild(td);
+        testCellMap.set(`${tcIdx}-${b}-${key}`, td);
+      }
+      tbody.appendChild(tr);
+    }
+  });
+  table.appendChild(tbody);
+  scroll.appendChild(table);
+  els.testResults.appendChild(scroll);
+}
+
+function setTestCell(tcIdx, blankIdx, key, result) {
+  const td = testCellMap.get(`${tcIdx}-${blankIdx}-${key}`);
+  if (!td) return;
+  td.className = `pred-cell test-cell test-cell-${result.status}`;
+  td.innerHTML = result.lines.map(l => `<span class="test-line">${l}</span>`).join('');
+}
+
+async function runTestSuite() {
+  const displayScale = Math.max(10, Math.min(5000, parseInt(els.runs.value, 10) || 1000));
+  els.testBtn.disabled = true;
+  els.runBtn.disabled = true;
+  buildTestTableSkeleton();
+  showSpinner('Running test suite…');
+
+  const perCaseBlanks = TEST_CASES.map(tc => {
+    const chunks = splitOnBlanks(tc.text);
+    return chunks ? chunks.length - 1 : 0;
+  });
+  const totalSteps = perCaseBlanks.reduce((s, n) => s + n * TEST_COLUMNS.length, 0);
+  let step = 0;
+
+  for (let tcIdx = 0; tcIdx < TEST_CASES.length; tcIdx++) {
+    const tc = TEST_CASES[tcIdx];
+    const chunks = splitOnBlanks(tc.text);
+    const blankCount = perCaseBlanks[tcIdx];
+    if (!blankCount) continue;
+
+    for (let b = 0; b < blankCount; b++) {
+      for (const key of TEST_NGRAM_MODELS) {
+        step++;
+        updateSpinnerMessage(`Test suite (${step}/${totalSteps}): "${tc.label}" — ${MODEL_LABELS[key]}…`);
+        const result = await runOneNgramCell(key, chunks, b, displayScale);
+        setTestCell(tcIdx, b, key, result);
+      }
+      step++;
+      updateSpinnerMessage(`Test suite (${step}/${totalSteps}): "${tc.label}" — ModernBERT…`);
+      const llmResult = await runOneLLMCell(chunks, b, blankCount);
+      setTestCell(tcIdx, b, 'llm', llmResult);
+    }
+  }
+
+  hideSpinner();
+  els.testBtn.disabled = false;
+  els.runBtn.disabled = false;
+}
+
+els.testBtn.addEventListener('click', runTestSuite);
 
 // Short "...last few words <blank> first few words..." caption for a
 // single blank's results section.
@@ -293,14 +445,17 @@ async function run() {
       );
       await new Promise(r => setTimeout(r, 0));
       try {
-        const { freqPairs, usedOrder, promptCnt, approx, backedOff } =
+        const { freqPairs, usedOrder, promptCnt, approx, backedOff, contextLimited, availableWords } =
           await ngramPredictLive(order, chunks, b, displayScale);
         const seenNote = `context seen ${promptCnt.toLocaleString()}×${approx ? ' (approximate)' : ''}`;
         const contextNote = key === 'infinigram' ? ` (${order - 1}-word context)` : '';
+        const limitedNote = contextLimited
+          ? ` · only ${availableWords} real word${availableWords === 1 ? '' : 's'} available before this blank (${MODEL_LABELS[key]} wanted ${order - 1})`
+          : '';
         const tag = backedOff
-          ? `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram · no match at ${MODEL_LABELS[key]}${contextNote} — backed off to ${orderLabel(usedOrder)} · ${seenNote}`
-          : `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram${contextNote} · ${seenNote}`;
-        addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, displayScale, tag, backedOff);
+          ? `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram · no match at ${MODEL_LABELS[key]}${contextNote} — backed off to ${orderLabel(usedOrder)} · ${seenNote}${limitedNote}`
+          : `n-gram · live exact counts, Dolma v1.7 (2.6T tokens) via infini-gram${contextNote} · ${seenNote}${limitedNote}`;
+        addNgramRow(b, blankCount, chunks, MODEL_LABELS[key], freqPairs, displayScale, tag, backedOff || contextLimited);
       } catch (err) {
         console.error(err);
         addErrorNote(`Couldn't reach the live n-gram model for ${MODEL_LABELS[key]}, blank ${b + 1} (${err.message || 'network error'}).`);

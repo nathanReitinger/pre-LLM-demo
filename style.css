@@ -210,3 +210,22 @@ tr.fallback-row td.model-cell .model-tag{color:#8a4b3b;}
   .row.two{grid-template-columns:1fr;}
   .panel{padding:26px;}
 }
+
+.test-suite-btn{
+  background:var(--paper);color:var(--ink);border:1px solid var(--line-2);
+  margin-left:10px;
+}
+.test-suite-btn:hover{background:var(--wash);border-color:var(--accent);}
+
+table.test-suite-table td.test-cell{font-size:.88rem;line-height:1.5;}
+.test-line{display:block;}
+.test-cell-pending{color:var(--ink-soft);font-style:italic;}
+.test-cell-ok{background:#f4f8f2;}
+.test-cell-warn{background:#fbf3e3;color:#7a5b16;}
+.test-cell-error{background:#fbeceb;color:#8a4b3b;}
+
+.test-legend{font-size:.88rem;color:var(--ink-soft);margin:0 0 14px;font-style:italic;}
+.test-legend .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 12px;vertical-align:middle;}
+.test-legend .swatch.ok{background:#f4f8f2;border:1px solid #cfe0c6;}
+.test-legend .swatch.warn{background:#fbf3e3;border:1px solid #e6c98a;}
+.test-legend .swatch.error{background:#fbeceb;border:1px solid #e0a99f;}

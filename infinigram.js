@@ -155,12 +155,20 @@ async function infiniNgramDistribution(contextText) {
 // backoff over real data — when it happens, the caller is told exactly
 // which order was actually used, so it's never silent.
 async function infiniNgramWithBackoff(rawWords, order) {
-  for (let n = order - 1; n >= 0; n--) {
+  // Never ask for more words of context than actually exist — clamp the
+  // starting point instead of relying on slice()'s silent negative-index
+  // behavior, which quietly reused fewer words than requested without
+  // ever reporting it.
+  const startN = Math.min(order - 1, rawWords.length);
+  const contextLimited = startN < order - 1; // fewer real words existed than this order wanted
+  for (let n = startN; n >= 0; n--) {
     const contextText = n === 0 ? '' : rawWords.slice(rawWords.length - n).join(' ');
     const { pairs, promptCnt, approx } = await infiniNgramDistribution(contextText);
-    if (pairs.length > 0) return { pairs, usedOrder: n + 1, promptCnt, approx, backedOff: n < order - 1 };
+    if (pairs.length > 0) {
+      return { pairs, usedOrder: n + 1, promptCnt, approx, backedOff: n < startN, contextLimited };
+    }
   }
-  return { pairs: [], usedOrder: 0, promptCnt: 0, approx: false, backedOff: true };
+  return { pairs: [], usedOrder: 0, promptCnt: 0, approx: false, backedOff: true, contextLimited };
 }
 
 if (typeof module !== 'undefined') {

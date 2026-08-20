@@ -1,4 +1,4 @@
-# Blank Tape — n-gram vs. LLM fill-in-the-blank lab
+# fill-in-the-blank lab: n-gram vs. LLM 
 
 A static, client-side site that fills in the blank(s) of a short story
 you provide using six stages of language modeling history side by side:

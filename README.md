@@ -1,4 +1,4 @@
-# fill-in-the-blank lab: n-gram vs. LLM 
+# fill-in-the-blank lab
 
 A static, client-side site that fills in the blank(s) of a short story
 you provide using six stages of language modeling history side by side:
@@ -101,28 +101,6 @@ add/remove chunk files:
 ```bash
 python3 make-manifest.py
 ```
-
-## Deploying to GitHub Pages
-
-1. Create a new GitHub repository (or use an existing one).
-2. Copy all the files listed above — plus your `static-corpus/` directory
-   (chunk files + `manifest.json`) — into the repository root (no build
-   step needed — it's plain HTML/CSS/JS).
-3. Commit and push:
-   ```bash
-   git add index.html style.css ngram.js embeddings.js rnn.js corpus.js static-corpus.js app.js README.md static-corpus/ deploy.yml
-   git commit -m "Add Blank Tape n-gram/LLM demo"
-   git push
-   ```
-4. In the repo, go to **Settings → Pages**.
-5. Under **Build and deployment**, set **Source** to "Deploy from a
-   branch," pick the branch (usually `main`) and the root folder
-   (`/`), then save.
-6. Wait a minute or two, then visit the URL GitHub shows you (usually
-   `https://<username>.github.io/<repo-name>/`).
-
-No other configuration is required. If you rename files, update the
-`<script>` and `<link>` tags in `index.html` to match.
 
 ## Real-world corpora these techniques were trained on
 
